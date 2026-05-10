@@ -24,6 +24,8 @@ from src.search.web_search import WebSearcher
 from src.input_pipeline.vision import VisionChannel
 from src.input_pipeline.audio import AudioChannel
 from src.input_pipeline.assembler import ContextAssembler
+from src.input_pipeline.address_detector import AddressDetector
+from src.conversation.responder import DirectResponder
 from src.models import ContextSnapshot, Interjection
 
 
@@ -48,10 +50,14 @@ class CreativityEngine:
         self.past_topics: list[str] = []
         self.current_context: str = ""
         self._thinking = False
+        self._listening = False
         self._multimodal = False
         self.vision: VisionChannel | None = None
         self.audio: AudioChannel | None = None
         self.assembler: ContextAssembler | None = None
+        self.detector: AddressDetector = AddressDetector(llm=self.llm)
+        self.responder: DirectResponder = DirectResponder(llm=self.llm)
+        self._overheard_buffer: list[str] = []
 
     def enable_multimodal(self) -> None:
         """Initialize vision + audio channels. Call before run_live for full perception."""
@@ -164,9 +170,17 @@ class CreativityEngine:
 
         self.enable_multimodal()
 
+        has_mic = self.audio and self.audio.is_available
+        if has_mic:
+            print(f"   Voice: Say 'Hey Creativity' to talk directly!")
+        else:
+            print(f"   Voice: No mic -- type to chat")
+
         print(f"\n{'─' * 70}")
         print("   Commands while running:")
         print("     Just type anything  → Update your context (what you're working on)")
+        if has_mic:
+            print("     'Hey Creativity'    → Talk to the engine directly (voice)")
         print("     'not now'           → Skip next 2 heartbeats")
         print("     'status'            → Show engine status")
         print("     'fire'              → Force a heartbeat right now")
@@ -187,12 +201,17 @@ class CreativityEngine:
                 print("\n👋 Shutting down.")
                 return
 
-        heartbeat_task = asyncio.create_task(self.heartbeat.start(self._on_heartbeat))
-        input_task = asyncio.create_task(self._input_loop())
+        tasks = [
+            asyncio.create_task(self.heartbeat.start(self._on_heartbeat)),
+            asyncio.create_task(self._input_loop()),
+        ]
+
+        if self.audio and self.audio.is_available:
+            tasks.append(asyncio.create_task(self._listening_loop()))
 
         try:
             done, pending = await asyncio.wait(
-                [heartbeat_task, input_task],
+                tasks,
                 return_when=asyncio.FIRST_COMPLETED,
             )
             for task in pending:
@@ -204,22 +223,29 @@ class CreativityEngine:
         except asyncio.CancelledError:
             pass
 
+        self._listening = False
         print("\n👋 Creativity Engine shutting down. Stay creative!")
         if self.vision:
             self.vision.release()
 
     async def _on_heartbeat(self, ctx: ContextSnapshot) -> None:
         """Called by the heartbeat timer — runs a full creative cycle."""
+        context_with_overheard = self.current_context
+        if self._overheard_buffer:
+            overheard_text = " | ".join(self._overheard_buffer[-3:])
+            context_with_overheard += f" (overheard: {overheard_text})"
+            self._overheard_buffer.clear()
+
         if self._multimodal and self.assembler:
             ctx = await self.assembler.assemble(
-                user_text=self.current_context,
+                user_text=context_with_overheard,
                 heartbeat_id=ctx.heartbeat_id,
             )
             seed = ctx.seed_topic
         else:
-            ctx.seed_topic = self.current_context
-            seed = self.current_context
-            print(f"   🎯 Context: \"{self.current_context}\"")
+            ctx.seed_topic = context_with_overheard
+            seed = context_with_overheard
+            print(f"   🎯 Context: \"{context_with_overheard}\"")
 
         interjection = await self.run_creative_cycle(seed, verbose=True)
 
@@ -229,8 +255,129 @@ class CreativityEngine:
             print(f"   \"{interjection.interjection_text}\"")
             print(f"\n{'═' * 70}")
             self._print_citations(interjection)
+            self.responder.add_engine_interjection(interjection.interjection_text)
         else:
             print(f"\n   🤫 Nothing interesting enough this time. I'll keep thinking...")
+
+    # ── BACKGROUND LISTENER (Direct Address Detection) ─────────────
+
+    async def _listening_loop(self) -> None:
+        """
+        Continuous background listener. Records short audio clips in a loop,
+        transcribes them, and checks for direct address (wake word).
+
+        - DIRECT  -> respond immediately via the Direct Response Engine
+        - OVERHEARD -> buffer the transcript for the next heartbeat's context
+        - SILENCE -> do nothing, loop again
+
+        The synchronous audio capture (sd.rec + sd.wait) runs in an executor
+        so it doesn't block the event loop. Transcription runs async normally.
+        """
+        self._listening = True
+        pause_seconds = 1.0
+        listen_count = 0
+
+        print(f"\n   [Listener] Background listener ACTIVE -- say 'Hey Creativity' anytime!")
+
+        while self.heartbeat.is_running and self._listening:
+            if self._thinking:
+                await asyncio.sleep(pause_seconds)
+                continue
+
+            if not self.audio or not self.audio.is_available:
+                await asyncio.sleep(pause_seconds)
+                continue
+
+            try:
+                listen_count += 1
+                loop = asyncio.get_event_loop()
+                audio_data = await loop.run_in_executor(
+                    None, self._capture_and_detect_speech
+                )
+
+                if audio_data is None:
+                    if listen_count % 12 == 0:
+                        print(f"   [Listener] ... still listening (cycle #{listen_count})")
+                    continue
+
+                print(f"   [Listener] Speech detected! Transcribing...")
+                transcript = await self.audio.transcribe(audio_data)
+
+                if not transcript:
+                    print(f"   [Listener] Transcription came back empty.")
+                    continue
+
+                print(f"   [Listener] Heard: \"{transcript}\"")
+                result = self.detector.detect(transcript, self.current_context)
+                print(f"   [Listener] Classified as: {result.mode}"
+                      f"{f' (wake word found!)' if result.wake_word_found else ''}")
+
+                if result.mode == "DIRECT":
+                    await self._handle_direct_address(result.message or transcript)
+                elif result.mode == "OVERHEARD" and transcript.strip():
+                    self._overheard_buffer.append(transcript.strip())
+                    if len(self._overheard_buffer) > 5:
+                        self._overheard_buffer = self._overheard_buffer[-5:]
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"   [Listener] Error: {e}")
+                await asyncio.sleep(pause_seconds)
+
+    def _capture_and_detect_speech(self):
+        """
+        Synchronous: capture audio and check for speech.
+        Returns the raw audio numpy array if speech is detected, else None.
+        Runs in an executor so it doesn't block the event loop.
+        Uses quiet mode to avoid spamming [MIC ON]/[MIC OFF] every few seconds.
+        """
+        if not self.audio or not self.audio.is_available:
+            return None
+
+        audio = self.audio.capture_audio(quiet=True)
+        if audio is None:
+            return None
+
+        if not self.audio.has_speech(audio):
+            return None
+
+        return audio
+
+    async def _handle_direct_address(self, message: str) -> None:
+        """The user said 'Hey Creativity' — respond immediately."""
+        print(f"\n   +{'=' * 48}+")
+        print(f"   |  DIRECT ADDRESS DETECTED                     |")
+        print(f"   +{'=' * 48}+")
+        print(f"   User said: \"{message[:70]}\"")
+
+        if not message.strip():
+            print(f"\n   [Heard the wake word but no message -- listening for follow-up...]")
+            follow_up = await self._listen_for_follow_up()
+            if follow_up:
+                message = follow_up
+            else:
+                print("   [No follow-up detected]")
+                return
+
+        print(f"   Thinking...")
+        reply = await self.responder.respond(message, self.current_context)
+
+        print(f"\n{'═' * 70}")
+        print(f"💬 CREATIVITY RESPONDS:\n")
+        print(f"   \"{reply}\"")
+        print(f"\n{'═' * 70}")
+
+    async def _listen_for_follow_up(self) -> str:
+        """After hearing just the wake word, listen for the actual question."""
+        if not self.audio or not self.audio.is_available:
+            return ""
+        print(f"   [MIC ON]  Listening for your question...")
+        transcript = await self.audio.quick_capture_and_transcribe()
+        print(f"   [MIC OFF] Got it.")
+        return transcript
+
+    # ── USER INPUT LOOP ──────────────────────────────────────────────
 
     async def _input_loop(self) -> None:
         """Listen for user input while the heartbeat runs in the background."""
@@ -262,12 +409,16 @@ class CreativityEngine:
                 mins = remaining // 60
                 secs = remaining % 60
                 thinking = "🧠 Thinking..." if self._thinking else "😌 Idle"
+                listening = "🎙️ Active" if self._listening else "Off"
                 print(f"\n   📊 Status:")
                 print(f"      State: {thinking}")
+                print(f"      Listener: {listening}")
                 print(f"      Context: \"{self.current_context}\"")
                 print(f"      Heartbeats fired: {self.heartbeat.beat_count}")
                 print(f"      Next heartbeat: ~{mins}m {secs}s")
                 print(f"      Past topics: {len(self.past_topics)}")
+                print(f"      Overheard buffer: {len(self._overheard_buffer)} items")
+                print(f"      Conversation turns: {len(self.responder.history)}")
 
             elif cmd == "fire":
                 if self._thinking:
@@ -277,8 +428,12 @@ class CreativityEngine:
                     self.heartbeat._remaining_seconds = 0
 
             else:
-                self.current_context = user_input
-                print(f"   ✅ Context updated: \"{self.current_context}\"")
+                typed_result = self.detector.detect(user_input, self.current_context)
+                if typed_result.mode == "DIRECT":
+                    await self._handle_direct_address(typed_result.message or user_input)
+                else:
+                    self.current_context = user_input
+                    print(f"   ✅ Context updated: \"{self.current_context}\"")
 
     # ── SINGLE-FIRE & INTERACTIVE MODES (unchanged) ──────────────────
 

@@ -65,13 +65,14 @@ class AudioChannel:
     def is_available(self) -> bool:
         return self._available
 
-    def capture_audio(self) -> np.ndarray | None:
+    def capture_audio(self, quiet: bool = False) -> np.ndarray | None:
         """Record a short audio clip from the microphone. Returns numpy array or None."""
         if not self._available:
             return None
         try:
             import sounddevice as sd
-            print(f"   [MIC ON]  Listening for {self.capture_seconds:.0f} seconds -- talk now!")
+            if not quiet:
+                print(f"   [MIC ON]  Listening for {self.capture_seconds:.0f} seconds -- talk now!")
             audio = sd.rec(
                 int(self.capture_seconds * self.sample_rate),
                 samplerate=self.sample_rate,
@@ -79,10 +80,12 @@ class AudioChannel:
                 dtype="float32",
             )
             sd.wait()
-            print(f"   [MIC OFF] Recording done.")
+            if not quiet:
+                print(f"   [MIC OFF] Recording done.")
             return audio.flatten()
         except Exception as e:
-            print(f"   [MIC OFF] Capture error: {e}")
+            if not quiet:
+                print(f"   [MIC OFF] Capture error: {e}")
             return None
 
     def has_speech(self, audio: np.ndarray, threshold: float = 0.01) -> bool:
@@ -148,6 +151,23 @@ class AudioChannel:
 
         max_similarity = max(similarities)
         return max(0.0, min(1.0, 1.0 - max_similarity))
+
+    async def quick_capture_and_transcribe(self) -> str:
+        """
+        Capture audio and transcribe in one step. Used by the background listener.
+        Returns the transcript string, or empty string if silence/failure.
+        """
+        if not self._available:
+            return ""
+
+        audio = self.capture_audio()
+        if audio is None:
+            return ""
+
+        if not self.has_speech(audio):
+            return ""
+
+        return await self.transcribe(audio)
 
     async def process(self) -> ChannelInput:
         """
