@@ -1,0 +1,18 @@
+# Curiosity Engine — Dependencies
+
+# LLM Providers (install the one you're using)
+openai>=1.30.0
+anthropic>=0.30.0
+
+# Configuration
+pyyaml>=6.0
+
+# Embeddings (for full scoring — optional for POC)
+numpy>=1.24.0
+
+# Future dependencies (not needed for POC):
+# sentence-transformers   # local embeddings
+# chromadb                # vector database
+# opencv-python           # webcam capture
+# sounddevice             # audio capture
+# openai-whisper          # speech-to-text

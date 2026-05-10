@@ -43,8 +43,8 @@ scoring:
     surprise: 0.20
     bridgeability: 0.15
     novelty: 0.10
-  fire_threshold: 0.65
-  incubation_threshold: 0.40
+  fire_threshold: 0.45
+  incubation_threshold: 0.30
   incubation_max_reevaluations: 5
   incubation_max_age_hours: 24
 
