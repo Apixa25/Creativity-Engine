@@ -107,15 +107,39 @@ class ScoringBreakdown:
 
 
 @dataclass
+class ChannelInput:
+    """One channel's contribution to the context snapshot."""
+    channel: str                    # "vision", "audio", "text"
+    raw_content: str = ""           # description, transcript, or user text
+    novelty: float = 1.0           # 0.0 (same as before) to 1.0 (completely new)
+    base_weight: float = 0.0
+    effective_weight: float = 0.0   # base_weight × novelty
+    available: bool = True
+
+
+@dataclass
 class ContextSnapshot:
     """
-    Simplified context for the POC — just a seed topic provided by the user.
-    The full multimodal pipeline (vision, audio, text) will be added later.
+    Multimodal context snapshot — what the engine perceives at this moment.
+    Combines vision (webcam), audio (mic), and text (user input) channels.
     """
     timestamp: datetime = field(default_factory=datetime.now)
     heartbeat_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
+
+    # Assembled seed topic (built from all channels)
     seed_topic: str = ""
+
+    # Individual channel data
+    vision: ChannelInput | None = None
+    audio: ChannelInput | None = None
+    text: ChannelInput | None = None
+
+    # Composite scores
+    dominant_channel: str = "text"
     overall_novelty: float = 1.0
+
+    # Raw image bytes (for passing to vision LLM)
+    image_bytes: bytes | None = field(default=None, repr=False)
 
 
 @dataclass

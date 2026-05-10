@@ -7,10 +7,14 @@ anthropic>=0.30.0
 # Web Search
 tavily-python>=0.7.0
 
+# Multimodal Input
+opencv-python>=4.8.0
+sounddevice>=0.5.0
+
 # Configuration
 pyyaml>=6.0
 
-# Embeddings (for full scoring — optional for POC)
+# Embeddings (for full scoring)
 numpy>=1.24.0
 
 # Future dependencies (not needed for POC):

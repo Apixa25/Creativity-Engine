@@ -21,6 +21,9 @@ from src.association_engine.tree_generator import AssociationTreeGenerator
 from src.scoring.interest_scorer import InterestScorer
 from src.bridge_builder.builder import BridgeBuilder
 from src.search.web_search import WebSearcher
+from src.input_pipeline.vision import VisionChannel
+from src.input_pipeline.audio import AudioChannel
+from src.input_pipeline.assembler import ContextAssembler
 from src.models import ContextSnapshot
 
 
@@ -45,6 +48,30 @@ class CuriosityEngine:
         self.past_topics: list[str] = []
         self.current_context: str = ""
         self._thinking = False
+        self._multimodal = False
+        self.vision: VisionChannel | None = None
+        self.audio: AudioChannel | None = None
+        self.assembler: ContextAssembler | None = None
+
+    def enable_multimodal(self) -> None:
+        """Initialize vision + audio channels. Call before run_live for full perception."""
+        print("\n   Initializing multimodal input pipeline...")
+        self.vision = VisionChannel()
+        self.vision.initialize()
+
+        self.audio = AudioChannel()
+        self.audio.initialize()
+
+        self.assembler = ContextAssembler(
+            llm=self.llm,
+            vision=self.vision if self.vision.is_available else None,
+            audio=self.audio if self.audio.is_available else None,
+        )
+        self._multimodal = self.vision.is_available or self.audio.is_available
+        if self._multimodal:
+            print("   Multimodal input enabled!")
+        else:
+            print("   No cameras or mics detected -- using text context only")
 
     async def run_creative_cycle(self, seed_topic: str, verbose: bool = True) -> str | None:
         """
@@ -135,6 +162,8 @@ class CuriosityEngine:
         if self.current_context:
             print(f"   Context: \"{self.current_context}\"")
 
+        self.enable_multimodal()
+
         print(f"\n{'─' * 70}")
         print("   Commands while running:")
         print("     Just type anything  → Update your context (what you're working on)")
@@ -176,13 +205,23 @@ class CuriosityEngine:
             pass
 
         print("\n👋 Curiosity Engine shutting down. Stay curious!")
+        if self.vision:
+            self.vision.release()
 
     async def _on_heartbeat(self, ctx: ContextSnapshot) -> None:
         """Called by the heartbeat timer — runs a full creative cycle."""
-        ctx.seed_topic = self.current_context
-        print(f"   🎯 Context: \"{self.current_context}\"")
+        if self._multimodal and self.assembler:
+            ctx = await self.assembler.assemble(
+                user_text=self.current_context,
+                heartbeat_id=ctx.heartbeat_id,
+            )
+            seed = ctx.seed_topic
+        else:
+            ctx.seed_topic = self.current_context
+            seed = self.current_context
+            print(f"   🎯 Context: \"{self.current_context}\"")
 
-        result = await self.run_creative_cycle(self.current_context, verbose=True)
+        result = await self.run_creative_cycle(seed, verbose=True)
 
         if result:
             print(f"\n{'═' * 70}")
