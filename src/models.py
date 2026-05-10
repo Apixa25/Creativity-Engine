@@ -1,5 +1,5 @@
 """
-Data models for the Curiosity Engine.
+Data models for the Creativity Engine.
 
 These are the core data structures that flow through the pipeline:
 Heartbeat → Context → Association Tree → Scoring → Interjection

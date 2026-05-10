@@ -1,5 +1,5 @@
 """
-Heartbeat — The Curiosity Clock.
+Heartbeat — The Creativity Clock.
 
 A random timer that fires at unpredictable intervals (1–10 minutes),
 creating the hidden causation that produces the appearance of spontaneous thought.

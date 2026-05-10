@@ -1,5 +1,5 @@
 """
-Curiosity Engine — Proof of Concept Runner
+Creativity Engine — Proof of Concept Runner
 
 Three modes:
     python -m src.main                          # interactive (manual fire)
@@ -27,7 +27,7 @@ from src.input_pipeline.assembler import ContextAssembler
 from src.models import ContextSnapshot, Interjection
 
 
-class CuriosityEngine:
+class CreativityEngine:
     """Orchestrates the full creative pipeline."""
 
     def __init__(self, config: EngineConfig | None = None):
@@ -153,7 +153,7 @@ class CuriosityEngine:
         self.current_context = initial_context
 
         print("=" * 70)
-        print("🧠 CURIOSITY ENGINE — Live Companion Mode")
+        print("🧠 CREATIVITY ENGINE — Live Companion Mode")
         print("=" * 70)
         print(f"\n   Provider: {self.cfg.llm.provider} | Model: {self.cfg.llm.model}")
         search_status = "✅ Tavily" if self.searcher.is_available else "⚠️  LLM fallback"
@@ -204,7 +204,7 @@ class CuriosityEngine:
         except asyncio.CancelledError:
             pass
 
-        print("\n👋 Curiosity Engine shutting down. Stay curious!")
+        print("\n👋 Creativity Engine shutting down. Stay creative!")
         if self.vision:
             self.vision.release()
 
@@ -225,7 +225,7 @@ class CuriosityEngine:
 
         if interjection:
             print(f"\n{'═' * 70}")
-            print(f"💬 CURIOSITY ENGINE SAYS:\n")
+            print(f"💬 CREATIVITY ENGINE SAYS:\n")
             print(f"   \"{interjection.interjection_text}\"")
             print(f"\n{'═' * 70}")
             self._print_citations(interjection)
@@ -294,7 +294,7 @@ class CuriosityEngine:
     async def run_single(self, seed_topic: str) -> None:
         """Fire a single heartbeat cycle — for testing and demos."""
         print("=" * 70)
-        print("🧠 CURIOSITY ENGINE — Proof of Concept")
+        print("🧠 CREATIVITY ENGINE — Proof of Concept")
         print("=" * 70)
 
         ctx = await self.heartbeat.fire_once(seed_topic)
@@ -344,7 +344,7 @@ class CuriosityEngine:
 
             elapsed = time.time() - t0
             print(f"{'═' * 70}")
-            print(f"💬 CURIOSITY ENGINE SAYS:\n")
+            print(f"💬 CREATIVITY ENGINE SAYS:\n")
             print(f"   \"{interjection.interjection_text}\"")
             print(f"\n{'═' * 70}")
             print(f"\n⏱️  Total pipeline time: {elapsed:.1f}s")
@@ -382,7 +382,7 @@ class CuriosityEngine:
     async def run_interactive(self) -> None:
         """Interactive mode — enter seed topics and watch the engine think."""
         print("=" * 70)
-        print("🧠 CURIOSITY ENGINE — Interactive Mode")
+        print("🧠 CREATIVITY ENGINE — Interactive Mode")
         print("=" * 70)
         print(f"\nProvider: {self.cfg.llm.provider} | Model: {self.cfg.llm.model}")
         search_status = "✅ Tavily" if self.searcher.is_available else "⚠️  No API key (using LLM fallback)"
@@ -394,13 +394,13 @@ class CuriosityEngine:
             try:
                 topic = input("🎯 Seed topic: ").strip()
             except (EOFError, KeyboardInterrupt):
-                print("\n\n👋 Curiosity Engine shutting down. Stay curious!")
+                print("\n\n👋 Creativity Engine shutting down. Stay creative!")
                 break
 
             if not topic:
                 continue
             if topic.lower() in ("quit", "exit", "q"):
-                print("\n👋 Curiosity Engine shutting down. Stay curious!")
+                print("\n👋 Creativity Engine shutting down. Stay creative!")
                 break
 
             await self.run_single(topic)
@@ -409,7 +409,7 @@ class CuriosityEngine:
 
 async def main():
     config = load_config()
-    engine = CuriosityEngine(config)
+    engine = CreativityEngine(config)
 
     args = sys.argv[1:]
 

@@ -1,6 +1,6 @@
-# 🧠 Curiosity Engine
+# 🧠 Creativity Engine
 
-**A proactive AI companion that simulates genuine curiosity through hidden causal complexity.**
+**A proactive AI companion that simulates genuine creativity through hidden causal complexity.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -8,23 +8,23 @@
 
 ## What Is This?
 
-The Curiosity Engine is an AI companion that **hangs out with you** — like a creative friend sitting next to you while you work. It doesn't wait for you to ask it questions. It watches, listens, and thinks on its own. Every few minutes, it might tap you on the shoulder with something surprising:
+The Creativity Engine is an AI companion that **hangs out with you** — like a creative friend sitting next to you while you work. It doesn't wait for you to ask it questions. It watches, listens, and thinks on its own. Every few minutes, it might tap you on the shoulder with something surprising:
 
 > *"Oh hey — did you know that NASA actually studied how construction workers communicate under stress when they were designing protocols for ISS repair crews? Turns out the hand signals are almost identical."*
 
-It's not a chatbot. It's not an assistant. It's a **companion with curiosity.**
+It's not a chatbot. It's not an assistant. It's a **companion with creativity.**
 
 ## Core Philosophy
 
 > **Intelligence is the ability to make correct or valuable associations between things that don't seem like they could be associated.**
 
-The engine simulates creative curiosity through three mechanisms:
+The engine simulates creative creativity through three mechanisms:
 
 1. **💓 The Heartbeat** — A random timer (1–10 min) creates the illusion of spontaneous thought
 2. **🌳 The Association Tree** — A branching tree of lateral associations (4–7 hops deep) generates surprising cross-domain connections
 3. **📊 The Interest Scorer** — A weighted scoring system filters for genuinely interesting insights, not noise
 
-The philosophical foundation: *"Free will" is causation complex enough to be invisible.* If the hidden causal chain is sufficiently intricate, the output is indistinguishable from genuine curiosity.
+The philosophical foundation: *"Free will" is causation complex enough to be invisible.* If the hidden causal chain is sufficiently intricate, the output is indistinguishable from genuine creativity.
 
 ## How It Works
 
@@ -51,15 +51,15 @@ The engine perceives your world through three channels, each weighted by **novel
 ## Project Structure
 
 ```
-Curiosity-Engine/
+Creativity-Engine/
 ├── project-vision.md          # Philosophy, principles, success criteria
 ├── docs/
 │   ├── architecture-spec.md   # Full system component design
 │   ├── input-pipeline-spec.md # Multimodal perception & novelty weighting
-│   └── curiosity-engine-spec.md # Association tree, scoring, bridge builder
+│   └── creativity-engine-spec.md # Association tree, scoring, bridge builder
 ├── src/
 │   ├── input_pipeline/        # Vision, audio, text capture & novelty
-│   ├── heartbeat/             # Random timer (curiosity clock)
+│   ├── heartbeat/             # Random timer (creativity clock)
 │   ├── association_engine/    # Branching association tree generator
 │   ├── search/                # Web search integration
 │   ├── scoring/               # Interest scorer & incubation queue

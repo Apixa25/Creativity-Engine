@@ -1,4 +1,4 @@
-# 🧠 Curiosity Engine — Project Vision
+# 🧠 Creativity Engine — Project Vision
 
 **Author:** Steven Sills II  
 **License:** MIT  
@@ -10,7 +10,7 @@
 
 > Intelligence is the ability to make correct or valuable associations between things that don't seem like they could be associated.
 
-A hot cup of coffee makes you rate a stranger as more warm and trustworthy. Your literal body temperature changes how "warm" you perceive someone else's personality. That cross-domain leap — from physical sensation to social judgment — is the essence of creative intelligence. The Curiosity Engine exists to simulate exactly that kind of lateral, surprising, cross-domain association.
+A hot cup of coffee makes you rate a stranger as more warm and trustworthy. Your literal body temperature changes how "warm" you perceive someone else's personality. That cross-domain leap — from physical sensation to social judgment — is the essence of creative intelligence. The Creativity Engine exists to simulate exactly that kind of lateral, surprising, cross-domain association.
 
 ---
 
@@ -18,7 +18,7 @@ A hot cup of coffee makes you rate a stranger as more warm and trustworthy. Your
 
 Every action has a causation. If every action has a causation, how could free will exist? The answer: **free will is causation that is complex enough to be invisible to the observer.** When the causal chain becomes sufficiently intricate, the output *appears* spontaneous — and appearance of spontaneity is indistinguishable from actual spontaneity.
 
-The Curiosity Engine is built on this principle. Every "creative" output has a deterministic causal chain behind it — random timers, association hops, scoring functions, web searches. But the chain is hidden from the user. The result feels like a friend who genuinely had a thought and wanted to share it.
+The Creativity Engine is built on this principle. Every "creative" output has a deterministic causal chain behind it — random timers, association hops, scoring functions, web searches. But the chain is hidden from the user. The result feels like a friend who genuinely had a thought and wanted to share it.
 
 **If the causation is complex enough, it will seem like magic.**
 
@@ -37,7 +37,7 @@ A **proactive AI companion** — not a chatbot that waits for input, but a frien
 
 ## The Three Mechanisms
 
-### 1. 💓 The Heartbeat (Curiosity Clock)
+### 1. 💓 The Heartbeat (Creativity Clock)
 A random timer selects an interval between 1–10 minutes. When the timer fires, the engine begins a creative cycle. The randomness is deterministic (pseudo-random), but hidden — creating the appearance of spontaneous thought.
 
 Multiple clock layers may exist:
@@ -75,7 +75,7 @@ interest_score = (semantic_distance × 0.30)    — reward boldness
 
 ## Multimodal Input — "Hanging Out" With You
 
-The Curiosity Engine perceives the world through multiple channels:
+The Creativity Engine perceives the world through multiple channels:
 
 ### 👁️ Vision (Webcam)
 - Captures an image when the heartbeat fires
@@ -85,7 +85,7 @@ The Curiosity Engine perceives the world through multiple channels:
 ### 👂 Hearing (Microphone)
 - Listens to ambient audio / speech
 - **Differentiates between direct address and overhearing:**
-  - "Hey Curiosity, what do you think about X?" → Direct input, high priority, expects response
+  - "Hey Creativity, what do you think about X?" → Direct input, high priority, expects response
   - You talking on a phone call about vacation plans → Overheard context, lower priority, feeds into passive awareness and association fuel
 - Wake word or attention detection separates these two modes.
 
@@ -130,7 +130,7 @@ The engine makes quantitative decisions (vector math, probability scores, cosine
 
 ## LLM Strategy
 
-The Curiosity Engine is **LLM-agnostic by design**. The harness, scoring, timing, and input pipeline are built independently. Different LLMs can be plugged in and evaluated for:
+The Creativity Engine is **LLM-agnostic by design**. The harness, scoring, timing, and input pipeline are built independently. Different LLMs can be plugged in and evaluated for:
 - Quality of lateral associations
 - Ability to bridge distant concepts narratively
 - Speed / latency for real-time interaction
@@ -143,11 +143,11 @@ We build the spec first, then test which LLM best serves the engine's creative g
 
 ## Success Criteria
 
-The Curiosity Engine is successful when:
+The Creativity Engine is successful when:
 
-1. ✅ The user (Steven) genuinely believes the AI is curious — not performing curiosity
+1. ✅ The user (Steven) genuinely believes the AI is creative — not performing creativity
 2. ✅ Interjections are surprising enough to provoke "huh, I didn't know that" or "that's a cool connection"
 3. ✅ The AI feels like a companion, not a tool — it has presence without demanding attention
 4. ✅ The proactive behavior feels natural, not spammy or random
 5. ✅ Over time, the AI's associations get better as it learns what Steven finds interesting
-6. ✅ The system is indistinguishable from an entity that has genuine creative curiosity
+6. ✅ The system is indistinguishable from an entity that has genuine creative creativity

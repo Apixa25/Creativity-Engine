@@ -94,7 +94,7 @@ class AudioChannel:
         """Transcribe audio using OpenAI Whisper API."""
         try:
             import wave
-            temp_path = Path(tempfile.gettempdir()) / "curiosity_audio.wav"
+            temp_path = Path(tempfile.gettempdir()) / "creativity_audio.wav"
             audio_int16 = (audio * 32767).astype(np.int16)
             with wave.open(str(temp_path), "w") as wf:
                 wf.setnchannels(1)

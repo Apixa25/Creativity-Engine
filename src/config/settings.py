@@ -1,5 +1,5 @@
 """
-Configuration loader for the Curiosity Engine.
+Configuration loader for the Creativity Engine.
 
 Reads from config.yaml (user's copy) or falls back to config.example.yaml.
 """

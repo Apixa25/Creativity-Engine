@@ -7,7 +7,7 @@
 
 ## Overview
 
-The Input Pipeline is the Curiosity Engine's sensory system. It answers the question: **"What is happening around the user right now, and how much of it is new?"**
+The Input Pipeline is the Creativity Engine's sensory system. It answers the question: **"What is happening around the user right now, and how much of it is new?"**
 
 Three channels (vision, audio, text) feed through a novelty weighting engine into a unified Context Snapshot. The key principle: **new things matter more than familiar things.** A friend sitting next to you doesn't keep commenting on your wallpaper — they notice when something changes.
 
@@ -148,7 +148,7 @@ Microphone (raw audio)
 This is one of the most important distinctions in the system. The engine must know when it's being spoken TO versus when it's just ambient context.
 
 **Signals indicating DIRECT address:**
-- Wake word detected: "Hey Curiosity", "Curiosity", or configured name
+- Wake word detected: "Hey Creativity", "Creativity", or configured name
 - Phrases like "What do you think?" / "Did you know?" when no other person is in context
 - Short pause after a declarative statement (user looking for reaction)
 
@@ -416,7 +416,7 @@ input_pipeline:
     history_window_minutes: 5
     base_weight_direct: 1.0
     base_weight_overheard: 0.25
-    wake_word: "Hey Curiosity"
+    wake_word: "Hey Creativity"
   
   text:
     enabled: true

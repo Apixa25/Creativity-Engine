@@ -1,4 +1,4 @@
-# 🌳 Curiosity Engine Spec — Association Tree, Scoring & Bridge Builder
+# 🌳 Creativity Engine Spec — Association Tree, Scoring & Bridge Builder
 
 **Version:** 0.1 (Draft)  
 **Reference:** [architecture-spec.md](./architecture-spec.md) · [project-vision.md](../project-vision.md)
@@ -7,7 +7,7 @@
 
 ## Overview
 
-This document specifies the **creative core** of the Curiosity Engine — the system that transforms a mundane Context Snapshot into a surprising, insightful interjection. This is where the "magic" happens: the hidden causal chain that produces the appearance of genuine curiosity.
+This document specifies the **creative core** of the Creativity Engine — the system that transforms a mundane Context Snapshot into a surprising, insightful interjection. This is where the "magic" happens: the hidden causal chain that produces the appearance of genuine creativity.
 
 The pipeline: **Seed Topics → Branching Association Tree → Web Search → Interest Scoring → Bridge Building → Interjection**
 

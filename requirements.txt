@@ -1,4 +1,4 @@
-# Curiosity Engine — Dependencies
+# Creativity Engine — Dependencies
 
 # LLM Providers (install the one you're using)
 openai>=1.30.0
