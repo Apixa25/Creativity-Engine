@@ -71,7 +71,7 @@ class AudioChannel:
             return None
         try:
             import sounddevice as sd
-            print(f"   [Audio] Listening for {self.capture_seconds}s...")
+            print(f"   [MIC ON]  Listening for {self.capture_seconds:.0f} seconds -- talk now!")
             audio = sd.rec(
                 int(self.capture_seconds * self.sample_rate),
                 samplerate=self.sample_rate,
@@ -79,9 +79,10 @@ class AudioChannel:
                 dtype="float32",
             )
             sd.wait()
+            print(f"   [MIC OFF] Recording done.")
             return audio.flatten()
         except Exception as e:
-            print(f"   [Audio] Capture error: {e}")
+            print(f"   [MIC OFF] Capture error: {e}")
             return None
 
     def has_speech(self, audio: np.ndarray, threshold: float = 0.01) -> bool:
@@ -125,7 +126,7 @@ class AudioChannel:
 
         if not self._transcript_history:
             self._transcript_history.append(transcript)
-            return 1.0
+            return 0.5
 
         current_words = set(transcript.lower().split())
         if len(current_words) < 2:

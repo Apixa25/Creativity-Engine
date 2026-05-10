@@ -60,7 +60,20 @@ class ContextAssembler:
         """
         Capture all channels, weight by novelty, and assemble a ContextSnapshot.
         """
-        print("   [Assembler] Assembling multimodal context...")
+        sensors = []
+        if self.vision and self.vision.is_available:
+            sensors.append("Camera")
+        if self.audio and self.audio.is_available:
+            sensors.append(f"Mic ({self.audio.capture_seconds:.0f}s)")
+
+        if sensors:
+            sensor_list = " + ".join(sensors)
+            print(f"\n   +{'=' * 48}+")
+            print(f"   |  PERCEPTION WINDOW OPEN -- {sensor_list:<19}|")
+            print(f"   |  Sensors are LIVE -- do/say something cool!  |")
+            print(f"   +{'=' * 48}+")
+        else:
+            print("   [Assembler] Assembling context (text only)...")
 
         # ── Vision channel ──
         vision_input = None
@@ -97,6 +110,10 @@ class ContextAssembler:
             channels.append(text_input)
 
         if not channels:
+            if sensors:
+                print(f"   +{'=' * 48}+")
+                print(f"   |  PERCEPTION WINDOW CLOSED                    |")
+                print(f"   +{'=' * 48}+")
             return ContextSnapshot(
                 heartbeat_id=heartbeat_id,
                 seed_topic=user_text or "general exploration",
@@ -121,6 +138,10 @@ class ContextAssembler:
 
         print(f"   >> Dominant channel: {dominant.channel} | Overall novelty: {overall_novelty:.2f}")
         print(f"   >> Seed topic: \"{seed_topic}\"")
+        if sensors:
+            print(f"   +{'=' * 48}+")
+            print(f"   |  PERCEPTION WINDOW CLOSED -- processing...   |")
+            print(f"   +{'=' * 48}+")
 
         return ContextSnapshot(
             heartbeat_id=heartbeat_id,
@@ -167,7 +188,7 @@ class ContextAssembler:
             return 0.0
         if not self._last_user_text:
             self._last_user_text = current
-            return 1.0
+            return 0.5
 
         current_words = set(current.lower().split())
         past_words = set(self._last_user_text.lower().split())

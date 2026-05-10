@@ -24,7 +24,7 @@ from src.search.web_search import WebSearcher
 from src.input_pipeline.vision import VisionChannel
 from src.input_pipeline.audio import AudioChannel
 from src.input_pipeline.assembler import ContextAssembler
-from src.models import ContextSnapshot
+from src.models import ContextSnapshot, Interjection
 
 
 class CuriosityEngine:
@@ -73,10 +73,10 @@ class CuriosityEngine:
         else:
             print("   No cameras or mics detected -- using text context only")
 
-    async def run_creative_cycle(self, seed_topic: str, verbose: bool = True) -> str | None:
+    async def run_creative_cycle(self, seed_topic: str, verbose: bool = True) -> Interjection | None:
         """
         Run one full creative cycle: tree → score → search → bridge → interjection.
-        Returns the interjection text, or None if nothing interesting enough.
+        Returns the full Interjection object, or None if nothing interesting enough.
         """
         self._thinking = True
         t0 = time.time()
@@ -137,7 +137,7 @@ class CuriosityEngine:
             if verbose:
                 print(f"   ⏱️  Cycle took {elapsed:.1f}s")
 
-            return interjection.interjection_text
+            return interjection
 
         finally:
             self._thinking = False
@@ -221,13 +221,14 @@ class CuriosityEngine:
             seed = self.current_context
             print(f"   🎯 Context: \"{self.current_context}\"")
 
-        result = await self.run_creative_cycle(seed, verbose=True)
+        interjection = await self.run_creative_cycle(seed, verbose=True)
 
-        if result:
+        if interjection:
             print(f"\n{'═' * 70}")
             print(f"💬 CURIOSITY ENGINE SAYS:\n")
-            print(f"   \"{result}\"")
+            print(f"   \"{interjection.interjection_text}\"")
             print(f"\n{'═' * 70}")
+            self._print_citations(interjection)
         else:
             print(f"\n   🤫 Nothing interesting enough this time. I'll keep thinking...")
 
@@ -280,6 +281,15 @@ class CuriosityEngine:
                 print(f"   ✅ Context updated: \"{self.current_context}\"")
 
     # ── SINGLE-FIRE & INTERACTIVE MODES (unchanged) ──────────────────
+
+    def _print_citations(self, interjection: Interjection) -> None:
+        """Print source URLs and facts from an interjection's web search."""
+        if interjection.search_facts:
+            print(f"🔍 Grounded in {len(interjection.search_facts)} web facts"
+                  f"{f' from {len(interjection.search_sources)} sources' if interjection.search_sources else ''}")
+        if interjection.search_sources:
+            for url in interjection.search_sources[:5]:
+                print(f"   📎 {url}")
 
     async def run_single(self, seed_topic: str) -> None:
         """Fire a single heartbeat cycle — for testing and demos."""
@@ -340,11 +350,7 @@ class CuriosityEngine:
             print(f"\n⏱️  Total pipeline time: {elapsed:.1f}s")
             print(f"📍 Internal chain: {best_chain.summary()}")
             print(f"📊 Interest score: {best_score.total:.3f}")
-            if search_result and search_result.facts:
-                print(f"🔍 Grounded in {len(search_result.facts)} web facts from {len(search_result.source_urls)} sources")
-            if search_result and search_result.source_urls:
-                for url in search_result.source_urls[:3]:
-                    print(f"   📎 {url}")
+            self._print_citations(interjection)
         else:
             elapsed = time.time() - t0
             print(f"{'─' * 70}")

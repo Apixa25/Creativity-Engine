@@ -90,7 +90,7 @@ class VisionChannel:
 
         if not self._hash_history:
             self._hash_history.append(current_hash)
-            return 1.0
+            return 0.5
 
         similarities = [
             self._hash_similarity(current_hash, past_hash)
@@ -118,8 +118,11 @@ class VisionChannel:
                 available=False,
             ), None
 
+        print("   [CAMERA ON]  Snapping picture...")
         image_bytes = self.capture_frame()
+        print("   [CAMERA OFF] Captured.")
         if image_bytes is None:
+            print("   [CAMERA OFF] Capture failed")
             return ChannelInput(
                 channel="vision",
                 raw_content="[camera read failed]",
