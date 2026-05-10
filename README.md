@@ -1,4 +1,4 @@
-# 🧠 Curiosity Engine
+# 🧠 Creativity Engine
 
 **A proactive AI companion that simulates genuine curiosity through hidden causal complexity.**
 
