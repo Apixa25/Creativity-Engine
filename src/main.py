@@ -1,7 +1,7 @@
 """
 Curiosity Engine — Proof of Concept Runner
 
-Ties together: Heartbeat → Association Tree → Interest Scorer → Bridge Builder
+Ties together: Heartbeat → Association Tree → Web Search → Interest Scorer → Bridge Builder
 
 Usage:
     python -m src.main                          # interactive mode
@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import time
 
@@ -20,6 +21,7 @@ from src.heartbeat.clock import Heartbeat
 from src.association_engine.tree_generator import AssociationTreeGenerator
 from src.scoring.interest_scorer import InterestScorer
 from src.bridge_builder.builder import BridgeBuilder
+from src.search.web_search import WebSearcher
 from src.models import ContextSnapshot
 
 
@@ -40,6 +42,7 @@ class CuriosityEngine:
         self.tree_gen = AssociationTreeGenerator(self.llm, self.cfg.association_tree)
         self.scorer = InterestScorer(self.llm, self.cfg.scoring)
         self.bridge = BridgeBuilder(self.llm)
+        self.searcher = WebSearcher(self.llm)
         self.past_topics: list[str] = []
 
     async def run_single(self, seed_topic: str) -> None:
@@ -52,6 +55,7 @@ class CuriosityEngine:
 
         t0 = time.time()
 
+        # ── Step 1: Generate association tree ──
         print(f"\n🌳 Generating association tree from: \"{seed_topic}\"")
         print(f"   Config: branching={self.cfg.association_tree.branching_factor}, "
               f"depth={self.cfg.association_tree.min_depth}-{self.cfg.association_tree.max_depth}, "
@@ -63,6 +67,7 @@ class CuriosityEngine:
             print("\n❌ No association chains were generated. Try a different seed topic.")
             return
 
+        # ── Step 2: Score top candidates ──
         print(f"\n📊 Scoring top candidates from {len(chains)} chains...")
         ranked = await self.scorer.rank_chains(chains, ctx, self.past_topics)
 
@@ -81,9 +86,19 @@ class CuriosityEngine:
         best_chain, best_score = ranked[0]
 
         if best_score.total >= self.cfg.scoring.fire_threshold:
+            # ── Step 3: Web search for real facts ──
             print(f"{'─' * 70}")
-            print("🌉 Building interjection from best chain...\n")
-            interjection = await self.bridge.build_interjection(best_chain, best_score, ctx)
+            search_result = await self._search_for_facts(best_chain, ctx)
+
+            # ── Step 4: Build interjection with real facts ──
+            print(f"\n🌉 Building interjection from best chain + search results...\n")
+            interjection = await self.bridge.build_interjection(
+                best_chain,
+                best_score,
+                ctx,
+                search_facts=search_result.facts if search_result else None,
+                search_sources=search_result.source_urls if search_result else None,
+            )
             self.past_topics.append(best_chain.endpoint_topic)
 
             elapsed = time.time() - t0
@@ -95,6 +110,11 @@ class CuriosityEngine:
             print(f"\n⏱️  Total pipeline time: {elapsed:.1f}s")
             print(f"📍 Internal chain: {best_chain.summary()}")
             print(f"📊 Interest score: {best_score.total:.3f}")
+            if search_result and search_result.facts:
+                print(f"🔍 Grounded in {len(search_result.facts)} web facts from {len(search_result.source_urls)} sources")
+            if search_result and search_result.source_urls:
+                for url in search_result.source_urls[:3]:
+                    print(f"   📎 {url}")
         else:
             elapsed = time.time() - t0
             print(f"{'─' * 70}")
@@ -103,12 +123,34 @@ class CuriosityEngine:
             print(f"   Best chain: {best_chain.summary()}")
             print(f"\n⏱️  Total pipeline time: {elapsed:.1f}s")
 
+    async def _search_for_facts(self, chain, ctx):
+        """Run web search on the winning chain's endpoint."""
+        print(f"🔍 Searching the web for facts about: \"{chain.endpoint_topic}\"")
+        try:
+            search_result = await self.searcher.search_for_chain(
+                endpoint_topic=chain.endpoint_topic,
+                chain_summary=chain.summary(),
+                context=ctx.seed_topic,
+            )
+            if search_result.facts:
+                print(f"   ✅ Found {len(search_result.facts)} facts:")
+                for fact in search_result.facts:
+                    print(f"      • {fact[:100]}{'...' if len(fact) > 100 else ''}")
+            else:
+                print(f"   ℹ️  No specific facts extracted from search results")
+            return search_result
+        except Exception as e:
+            print(f"   ⚠️  Search failed: {e}")
+            return None
+
     async def run_interactive(self) -> None:
         """Interactive mode — enter seed topics and watch the engine think."""
         print("=" * 70)
         print("🧠 CURIOSITY ENGINE — Interactive Mode")
         print("=" * 70)
         print(f"\nProvider: {self.cfg.llm.provider} | Model: {self.cfg.llm.model}")
+        search_status = "✅ Tavily" if self.searcher.is_available else "⚠️  No API key (using LLM fallback)"
+        print(f"Search: {search_status}")
         print("Type a seed topic and press Enter to fire a heartbeat cycle.")
         print("Type 'quit' to exit.\n")
 

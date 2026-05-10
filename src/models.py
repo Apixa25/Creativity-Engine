@@ -127,3 +127,5 @@ class Interjection:
     scoring: ScoringBreakdown | None = None
     interjection_text: str = ""
     context: ContextSnapshot | None = None
+    search_facts: list[str] = field(default_factory=list)
+    search_sources: list[str] = field(default_factory=list)
