@@ -62,11 +62,26 @@ class CreativityEngine:
     def enable_multimodal(self) -> None:
         """Initialize vision + audio channels. Call before run_live for full perception."""
         print("\n   Initializing multimodal input pipeline...")
-        self.vision = VisionChannel()
-        self.vision.initialize()
+        ip = self.cfg.input_pipeline
 
-        self.audio = AudioChannel(api_key=getattr(self.llm, 'api_key', ''))
-        self.audio.initialize()
+        self.vision = VisionChannel(
+            history_window=ip.vision.history_window,
+            base_weight=ip.vision.base_weight,
+            min_novelty_for_description=ip.vision.min_novelty_for_description,
+            device_index=ip.vision.device_index,
+        )
+        if ip.vision.enabled:
+            self.vision.initialize()
+
+        self.audio = AudioChannel(
+            api_key=getattr(self.llm, 'api_key', ''),
+            capture_seconds=ip.audio.capture_seconds,
+            base_weight_direct=ip.audio.base_weight_direct,
+            base_weight_overheard=ip.audio.base_weight_overheard,
+            device_index=ip.audio.device_index,
+        )
+        if ip.audio.enabled:
+            self.audio.initialize()
 
         self.assembler = ContextAssembler(
             llm=self.llm,
@@ -570,11 +585,52 @@ class CreativityEngine:
             print()
 
 
+def print_devices():
+    """List all available cameras and microphones."""
+    print("=" * 70)
+    print("   AVAILABLE DEVICES")
+    print("=" * 70)
+
+    print("\n   CAMERAS (Vision):")
+    print("   " + "-" * 50)
+    cameras = VisionChannel.list_devices()
+    if cameras:
+        for cam in cameras:
+            status = "OK" if cam["working"] else "FOUND (no frame)"
+            print(f"   [{cam['index']}] {cam['name']}  -- {status}")
+    else:
+        print("   No cameras detected (is opencv-python installed?)")
+
+    print("\n   MICROPHONES (Audio):")
+    print("   " + "-" * 50)
+    mics = AudioChannel.list_devices()
+    if mics:
+        for mic in mics:
+            default_tag = " <-- DEFAULT" if mic["is_default"] else ""
+            print(f"   [{mic['index']}] {mic['name']}")
+            print(f"        channels={mic['channels']}, rate={mic['sample_rate']}Hz{default_tag}")
+    else:
+        print("   No microphones detected (is sounddevice installed?)")
+
+    print("\n   " + "-" * 50)
+    print("   To select devices, add to your config.yaml:\n")
+    print("   input_pipeline:")
+    print("     vision:")
+    print("       device_index: 0    # camera number from list above")
+    print("     audio:")
+    print("       device_index: 0    # microphone number from list above")
+    print()
+
+
 async def main():
+    args = sys.argv[1:]
+
+    if "--devices" in args:
+        print_devices()
+        return
+
     config = load_config()
     engine = CreativityEngine(config)
-
-    args = sys.argv[1:]
 
     if "--live" in args:
         args.remove("--live")

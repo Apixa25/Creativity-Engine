@@ -30,14 +30,44 @@ class ImageCapture:
 
 
 class VisionChannel:
-    def __init__(self, history_window: int = 10, base_weight: float = 0.35, min_novelty_for_description: float = 0.3):
+    def __init__(
+        self,
+        history_window: int = 10,
+        base_weight: float = 0.35,
+        min_novelty_for_description: float = 0.3,
+        device_index: int | None = None,
+    ):
         self.history_window = history_window
         self.base_weight = base_weight
         self.min_novelty_for_description = min_novelty_for_description
+        self.device_index = device_index
         self._hash_history: deque[str] = deque(maxlen=history_window)
         self._camera = None
         self._available = False
         self._initialized = False
+
+    @staticmethod
+    def list_devices(max_check: int = 10) -> list[dict]:
+        """Probe available cameras by index. Returns list of {index, name, working}."""
+        devices = []
+        try:
+            import cv2
+        except ImportError:
+            return devices
+        for i in range(max_check):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                ret, _ = cap.read()
+                backend = cap.getBackendName()
+                devices.append({
+                    "index": i,
+                    "name": f"Camera {i} ({backend})",
+                    "working": ret,
+                })
+                cap.release()
+            else:
+                break
+        return devices
 
     def initialize(self) -> bool:
         """Try to open the webcam. Returns True if successful."""
@@ -46,14 +76,16 @@ class VisionChannel:
         self._initialized = True
         try:
             import cv2
-            self._camera = cv2.VideoCapture(0)
+            idx = self.device_index if self.device_index is not None else 0
+            self._camera = cv2.VideoCapture(idx)
             if self._camera.isOpened():
                 self._available = True
-                print("   [Vision] Webcam: connected")
+                backend = self._camera.getBackendName()
+                print(f"   [Vision] Webcam: connected (device {idx}, {backend})")
             else:
                 self._available = False
                 self._camera = None
-                print("   [Vision] Webcam: not available")
+                print(f"   [Vision] Webcam: device {idx} not available")
         except ImportError:
             print("   [Vision] Webcam: opencv-python not installed")
             self._available = False

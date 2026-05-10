@@ -29,6 +29,7 @@ class AudioChannel:
         capture_seconds: float = 5.0,
         sample_rate: int = 16000,
         api_key: str = "",
+        device_index: int | None = None,
     ):
         self.history_window = history_window
         self.base_weight_direct = base_weight_direct
@@ -36,9 +37,30 @@ class AudioChannel:
         self.capture_seconds = capture_seconds
         self.sample_rate = sample_rate
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self.device_index = device_index
         self._transcript_history: deque[str] = deque(maxlen=history_window)
         self._available = False
         self._initialized = False
+
+    @staticmethod
+    def list_devices() -> list[dict]:
+        """List all available audio input devices. Returns list of {index, name, channels, sample_rate}."""
+        devices = []
+        try:
+            import sounddevice as sd
+        except ImportError:
+            return devices
+        all_devices = sd.query_devices()
+        for i, dev in enumerate(all_devices):
+            if dev["max_input_channels"] > 0:
+                devices.append({
+                    "index": i,
+                    "name": dev["name"],
+                    "channels": dev["max_input_channels"],
+                    "sample_rate": int(dev["default_samplerate"]),
+                    "is_default": dev == sd.query_devices(kind="input"),
+                })
+        return devices
 
     def initialize(self) -> bool:
         """Check if audio capture is possible."""
@@ -47,14 +69,23 @@ class AudioChannel:
         self._initialized = True
         try:
             import sounddevice as sd
-            devices = sd.query_devices()
-            default_input = sd.query_devices(kind="input")
-            if default_input is not None:
-                self._available = True
-                print(f"   [Audio] Microphone: connected ({default_input['name'][:40]})")
+            if self.device_index is not None:
+                device_info = sd.query_devices(self.device_index)
+                if device_info["max_input_channels"] > 0:
+                    sd.default.device[0] = self.device_index
+                    self._available = True
+                    print(f"   [Audio] Microphone: connected (device {self.device_index}: {device_info['name'][:40]})")
+                else:
+                    print(f"   [Audio] Device {self.device_index} ({device_info['name']}) is not an input device")
+                    self._available = False
             else:
-                print("   [Audio] Microphone: no input device found")
-                self._available = False
+                default_input = sd.query_devices(kind="input")
+                if default_input is not None:
+                    self._available = True
+                    print(f"   [Audio] Microphone: connected ({default_input['name'][:40]})")
+                else:
+                    print("   [Audio] Microphone: no input device found")
+                    self._available = False
         except ImportError:
             print("   [Audio] Microphone: sounddevice not installed")
             self._available = False

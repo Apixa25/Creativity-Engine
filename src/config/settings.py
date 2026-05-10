@@ -54,11 +54,36 @@ class LLMConfig:
 
 
 @dataclass
+class VisionConfig:
+    enabled: bool = True
+    device_index: int | None = None
+    history_window: int = 10
+    base_weight: float = 0.35
+    min_novelty_for_description: float = 0.3
+
+
+@dataclass
+class AudioConfig:
+    enabled: bool = True
+    device_index: int | None = None
+    capture_seconds: float = 5.0
+    base_weight_direct: float = 1.0
+    base_weight_overheard: float = 0.25
+
+
+@dataclass
+class InputPipelineConfig:
+    vision: VisionConfig = field(default_factory=VisionConfig)
+    audio: AudioConfig = field(default_factory=AudioConfig)
+
+
+@dataclass
 class EngineConfig:
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
     association_tree: AssociationTreeConfig = field(default_factory=AssociationTreeConfig)
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    input_pipeline: InputPipelineConfig = field(default_factory=InputPipelineConfig)
 
 
 def load_config(config_path: str | Path | None = None) -> EngineConfig:
@@ -85,6 +110,9 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
     sc = raw.get("scoring", {})
     sw = sc.get("weights", {})
     llm_raw = raw.get("llm", {})
+    ip = raw.get("input_pipeline", {})
+    vis = ip.get("vision", {})
+    aud = ip.get("audio", {})
 
     return EngineConfig(
         heartbeat=HeartbeatConfig(
@@ -114,5 +142,21 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
             model=llm_raw.get("model") or "gpt-4o-mini",
             api_key_env=llm_raw.get("api_key_env") or "OPENAI_API_KEY",
             base_url=llm_raw.get("base_url"),
+        ),
+        input_pipeline=InputPipelineConfig(
+            vision=VisionConfig(
+                enabled=vis.get("enabled", True),
+                device_index=vis.get("device_index"),
+                history_window=vis.get("history_window", 10),
+                base_weight=vis.get("base_weight", 0.35),
+                min_novelty_for_description=vis.get("min_novelty_for_description", 0.3),
+            ),
+            audio=AudioConfig(
+                enabled=aud.get("enabled", True),
+                device_index=aud.get("device_index"),
+                capture_seconds=aud.get("capture_seconds", 5.0),
+                base_weight_direct=aud.get("base_weight_direct", 1.0),
+                base_weight_overheard=aud.get("base_weight_overheard", 0.25),
+            ),
         ),
     )
