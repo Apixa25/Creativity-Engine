@@ -28,12 +28,14 @@ class AudioChannel:
         base_weight_overheard: float = 0.25,
         capture_seconds: float = 5.0,
         sample_rate: int = 16000,
+        api_key: str = "",
     ):
         self.history_window = history_window
         self.base_weight_direct = base_weight_direct
         self.base_weight_overheard = base_weight_overheard
         self.capture_seconds = capture_seconds
         self.sample_rate = sample_rate
+        self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self._transcript_history: deque[str] = deque(maxlen=history_window)
         self._available = False
         self._initialized = False
@@ -106,7 +108,7 @@ class AudioChannel:
                 wf.writeframes(audio_int16.tobytes())
 
             from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+            client = AsyncOpenAI(api_key=self._api_key or None)
             with open(temp_path, "rb") as f:
                 response = await client.audio.transcriptions.create(
                     model="whisper-1",

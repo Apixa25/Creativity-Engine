@@ -23,19 +23,19 @@
 
 ---
 
-## Priority 1 — Direct Address & Conversation
+## Priority 1 — Direct Address & Conversation ✅ COMPLETE
 
-### Direct Address Detector
-- [ ] Wake word detection ("Hey Creativity") on audio transcripts
-- [ ] Classify audio as DIRECT (talking to engine) vs OVERHEARD (talking to someone else)
-- [ ] DIRECT bypasses heartbeat, triggers immediate response
-- [ ] OVERHEARD feeds into context assembler at reduced weight
-- [ ] Continuous background listening (not just on heartbeat)
+### Direct Address Detector ✅
+- [x] Wake word detection ("Hey Creativity") on audio transcripts
+- [x] Classify audio as DIRECT (talking to engine) vs OVERHEARD (talking to someone else)
+- [x] DIRECT bypasses heartbeat, triggers immediate response
+- [x] OVERHEARD feeds into context assembler at reduced weight
+- [x] Continuous background listening (not just on heartbeat)
 
-### Direct Response Engine
-- [ ] Conversational reply when user addresses the engine directly
-- [ ] Uses current context + conversation history for relevant responses
-- [ ] Responds immediately (no heartbeat wait)
+### Direct Response Engine ✅
+- [x] Conversational reply when user addresses the engine directly
+- [x] Uses current context + conversation history for relevant responses
+- [x] Responds immediately (no heartbeat wait)
 - [ ] Can still trigger creative associations if the question inspires one
 
 ---

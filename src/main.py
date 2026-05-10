@@ -65,7 +65,7 @@ class CreativityEngine:
         self.vision = VisionChannel()
         self.vision.initialize()
 
-        self.audio = AudioChannel()
+        self.audio = AudioChannel(api_key=getattr(self.llm, 'api_key', ''))
         self.audio.initialize()
 
         self.assembler = ContextAssembler(
@@ -161,6 +161,14 @@ class CreativityEngine:
         print("=" * 70)
         print("🧠 CREATIVITY ENGINE — Live Companion Mode")
         print("=" * 70)
+
+        import os
+        api_key = getattr(self.llm, 'api_key', '') or os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            print("\n   ⚠️  WARNING: No OPENAI_API_KEY found!")
+            print("   Set it with:  $env:OPENAI_API_KEY = \"sk-proj-your-key-here\"")
+            print("   The engine will NOT work without it.\n")
+
         print(f"\n   Provider: {self.cfg.llm.provider} | Model: {self.cfg.llm.model}")
         search_status = "✅ Tavily" if self.searcher.is_available else "⚠️  LLM fallback"
         print(f"   Search: {search_status}")
