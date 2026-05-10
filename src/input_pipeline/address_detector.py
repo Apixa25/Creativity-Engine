@@ -11,6 +11,7 @@ When DIRECT is detected, extracts the user's actual message after the wake word.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Literal
 
@@ -64,14 +65,33 @@ Return ONLY one word: DIRECT or OVERHEARD"""
 
 
 class AddressDetector:
+    CONVERSATION_WINDOW_SECONDS = 30.0
+
     def __init__(self, llm: LLMAdapter | None = None, wake_phrases: list[str] | None = None):
         self.llm = llm
         self.wake_phrases = [p.lower() for p in (wake_phrases or WAKE_PHRASES)]
+        self._last_direct_time: float = 0.0
+
+    @property
+    def in_conversation(self) -> bool:
+        """True if the user recently spoke directly to the engine."""
+        if self._last_direct_time == 0.0:
+            return False
+        return (time.time() - self._last_direct_time) < self.CONVERSATION_WINDOW_SECONDS
+
+    def mark_conversation_active(self) -> None:
+        """Called after a direct address to keep the conversation window open."""
+        self._last_direct_time = time.time()
+
+    def end_conversation(self) -> None:
+        """Manually close the conversation window."""
+        self._last_direct_time = 0.0
 
     def detect(self, transcript: str, context: str = "") -> AddressResult:
         """
-        Fast detection using wake word matching.
-        Returns an AddressResult with the classification and extracted message.
+        Fast detection using wake word matching + conversation window.
+        If the user recently talked to the engine (within 30s), all speech
+        is treated as DIRECT — no need to repeat the wake word.
         """
         if not transcript or not transcript.strip():
             return AddressResult(mode="SILENCE", transcript=transcript)
@@ -80,12 +100,23 @@ class AddressDetector:
         found, message = self._check_wake_word(clean)
 
         if found:
+            self.mark_conversation_active()
             return AddressResult(
                 mode="DIRECT",
                 message=message,
                 transcript=clean,
                 wake_word_found=True,
                 confidence=1.0,
+            )
+
+        if self.in_conversation:
+            self.mark_conversation_active()
+            return AddressResult(
+                mode="DIRECT",
+                message=clean,
+                transcript=clean,
+                wake_word_found=False,
+                confidence=0.85,
             )
 
         return AddressResult(

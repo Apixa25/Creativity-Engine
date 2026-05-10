@@ -42,7 +42,6 @@ class VisionChannel:
         self.min_novelty_for_description = min_novelty_for_description
         self.device_index = device_index
         self._hash_history: deque[str] = deque(maxlen=history_window)
-        self._camera = None
         self._available = False
         self._initialized = False
 
@@ -70,21 +69,23 @@ class VisionChannel:
         return devices
 
     def initialize(self) -> bool:
-        """Try to open the webcam. Returns True if successful."""
+        """Test that the webcam can be opened, then immediately release it.
+        The camera is only held open during capture_frame() to avoid
+        keeping the green light on between heartbeats."""
         if self._initialized:
             return self._available
         self._initialized = True
         try:
             import cv2
             idx = self.device_index if self.device_index is not None else 0
-            self._camera = cv2.VideoCapture(idx)
-            if self._camera.isOpened():
+            cam = cv2.VideoCapture(idx)
+            if cam.isOpened():
                 self._available = True
-                backend = self._camera.getBackendName()
+                backend = cam.getBackendName()
                 print(f"   [Vision] Webcam: connected (device {idx}, {backend})")
+                cam.release()
             else:
                 self._available = False
-                self._camera = None
                 print(f"   [Vision] Webcam: device {idx} not available")
         except ImportError:
             print("   [Vision] Webcam: opencv-python not installed")
@@ -99,12 +100,18 @@ class VisionChannel:
         return self._available
 
     def capture_frame(self) -> bytes | None:
-        """Capture a single frame from the webcam. Returns JPEG bytes or None."""
-        if not self._available or self._camera is None:
+        """Open the camera, grab one frame, release immediately.
+        This keeps the green light on only for the brief capture moment."""
+        if not self._available:
             return None
         try:
             import cv2
-            ret, frame = self._camera.read()
+            idx = self.device_index if self.device_index is not None else 0
+            cam = cv2.VideoCapture(idx)
+            if not cam.isOpened():
+                return None
+            ret, frame = cam.read()
+            cam.release()
             if not ret or frame is None:
                 return None
             _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -247,7 +254,5 @@ class VisionChannel:
         return matching / max(len(hash1), len(hash2))
 
     def release(self):
-        """Release the webcam."""
-        if self._camera is not None:
-            self._camera.release()
-            self._camera = None
+        """Mark channel as unavailable. Camera is already released after each capture."""
+        self._available = False

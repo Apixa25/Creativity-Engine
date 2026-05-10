@@ -150,6 +150,42 @@ class WebSearcher:
             print(f"   ⚠️  Fact extraction failed: {e}")
         return []
 
+    async def search_direct(self, user_query: str) -> SearchResult:
+        """On-demand search triggered by the user asking directly.
+        Simpler than search_for_chain — uses the user's words to build the query."""
+        query_prompt = (
+            f"The user asked their AI companion to search for information. "
+            f"Their request: \"{user_query}\"\n\n"
+            f"Construct a concise, effective web search query that would find "
+            f"the most relevant and interesting results. Return ONLY the query string."
+        )
+        resp = await self.llm.generate(query_prompt, system=QUERY_SYSTEM, temperature=0.3)
+        query = resp.text.strip().strip('"').strip("'")
+
+        print(f"   🔍 Searching: \"{query}\"")
+
+        if self.is_available:
+            raw_results = await self._tavily_search(query)
+        else:
+            return await self._fallback_search(user_query, query)
+
+        if not raw_results:
+            return SearchResult(query=query, summary="No results found.")
+
+        results_text = self._format_results(raw_results)
+        facts = await self._extract_facts(query, results_text)
+        urls = [r.get("url", "") for r in raw_results if r.get("url")]
+
+        summary = " | ".join(facts) if facts else "No specific facts extracted."
+
+        return SearchResult(
+            query=query,
+            facts=facts,
+            source_urls=urls[:5],
+            summary=summary,
+            raw_results=raw_results,
+        )
+
     async def _fallback_search(self, endpoint: str, query: str) -> SearchResult:
         """When no search API is available, ask the LLM for its best knowledge."""
         print(f"   ℹ️  No Tavily key — using LLM knowledge as fallback")

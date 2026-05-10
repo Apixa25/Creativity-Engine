@@ -332,8 +332,12 @@ class CreativityEngine:
 
                 print(f"   [Listener] Heard: \"{transcript}\"")
                 result = self.detector.detect(transcript, self.current_context)
-                print(f"   [Listener] Classified as: {result.mode}"
-                      f"{f' (wake word found!)' if result.wake_word_found else ''}")
+                reason = ""
+                if result.wake_word_found:
+                    reason = " (wake word found!)"
+                elif result.mode == "DIRECT":
+                    reason = " (conversation still active)"
+                print(f"   [Listener] Classified as: {result.mode}{reason}")
 
                 if result.mode == "DIRECT":
                     await self._handle_direct_address(result.message or transcript)
@@ -367,6 +371,26 @@ class CreativityEngine:
 
         return audio
 
+    PICTURE_PHRASES = [
+        "take a picture", "take a photo", "take a pic", "snap a picture",
+        "snap a photo", "snap a pic", "look at this", "look at that",
+        "what do you see", "what are you looking at", "check this out",
+        "look over here", "see this", "see what", "take a look",
+        "can you see", "do you see", "what's in front of you",
+    ]
+
+    SEARCH_PHRASES = [
+        "search for", "search about", "look up", "google",
+        "internet search", "web search", "find out about",
+        "do a search", "do an internet search", "do a web search",
+        "search the web", "search the internet", "search online",
+        "what does the internet say", "find me info",
+        "research", "look into",
+        "do an interview", "do an inner view", "do an inner search",
+        "do an intern search", "do an internet surge",
+        "tell me about", "what do you know about",
+    ]
+
     async def _handle_direct_address(self, message: str) -> None:
         """The user said 'Hey Creativity' — respond immediately."""
         print(f"\n   +{'=' * 48}+")
@@ -383,13 +407,78 @@ class CreativityEngine:
                 print("   [No follow-up detected]")
                 return
 
+        image_description = ""
+        search_facts = ""
+        search_sources: list[str] = []
+
+        if self._is_picture_request(message):
+            image_description = await self._take_picture_on_demand(message)
+
+        if self._is_search_request(message):
+            search_facts, search_sources = await self._search_on_demand(message)
+
         print(f"   Thinking...")
-        reply = await self.responder.respond(message, self.current_context)
+        reply = await self.responder.respond(
+            message, self.current_context,
+            image_description=image_description,
+            search_context=search_facts,
+        )
 
         print(f"\n{'═' * 70}")
         print(f"💬 CREATIVITY RESPONDS:\n")
         print(f"   \"{reply}\"")
         print(f"\n{'═' * 70}")
+        if search_sources:
+            print(f"🔍 Sources:")
+            for url in search_sources:
+                print(f"   📎 {url}")
+            print()
+
+    def _is_picture_request(self, message: str) -> bool:
+        """Check if the user is asking the engine to look at something."""
+        lower = message.lower()
+        return any(phrase in lower for phrase in self.PICTURE_PHRASES)
+
+    def _is_search_request(self, message: str) -> bool:
+        """Check if the user is asking for a web search."""
+        lower = message.lower()
+        return any(phrase in lower for phrase in self.SEARCH_PHRASES)
+
+    async def _take_picture_on_demand(self, message: str) -> str:
+        """Capture a photo and describe it. Returns the image description."""
+        if not self.vision or not self.vision.is_available:
+            print("   [No camera available — responding without vision]")
+            return ""
+
+        print("   [CAMERA ON]  Snapping picture on demand...")
+        image_bytes = self.vision.capture_frame()
+        print("   [CAMERA OFF] Got it!")
+
+        if image_bytes is None:
+            print("   [Camera capture failed]")
+            return ""
+
+        print("   [Describing what I see...]")
+        description = await self.vision._describe_image(image_bytes, self.llm)
+        if description:
+            print(f"   [Vision] I see: {description[:80]}")
+        return description
+
+    async def _search_on_demand(self, message: str) -> tuple[str, list[str]]:
+        """Run a web search based on what the user asked. Returns (facts_text, source_urls)."""
+        print(f"   🔍 Searching the web for you...")
+        try:
+            result = await self.searcher.search_direct(message)
+            if result.facts:
+                facts_text = "\n".join(f"- {fact}" for fact in result.facts)
+                print(f"   ✅ Found {len(result.facts)} facts from {len(result.source_urls)} sources")
+                return facts_text, result.source_urls
+            else:
+                print(f"   ℹ️  Search completed but no specific facts extracted")
+                return "", result.source_urls
+        except Exception as e:
+            print(f"   ⚠️  Search failed: {e}")
+            return "", []
 
     async def _listen_for_follow_up(self) -> str:
         """After hearing just the wake word, listen for the actual question."""

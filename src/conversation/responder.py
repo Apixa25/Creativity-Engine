@@ -47,6 +47,8 @@ WHAT THE USER HAS BEEN WORKING ON:
 
 {history_section}
 
+{vision_section}
+
 Respond naturally as their creative companion. Rules:
 - Be conversational — this is a real-time chat, not an essay
 - Keep it to 1-4 sentences unless they asked something that needs more
@@ -63,7 +65,13 @@ class DirectResponder:
         self.llm = llm
         self.history: deque[ConversationTurn] = deque(maxlen=history_limit)
 
-    async def respond(self, message: str, context: str = "") -> str:
+    async def respond(
+        self,
+        message: str,
+        context: str = "",
+        image_description: str = "",
+        search_context: str = "",
+    ) -> str:
         """
         Generate a conversational response to a direct message from the user.
         Updates conversation history automatically.
@@ -72,10 +80,28 @@ class DirectResponder:
 
         history_section = self._format_history()
 
+        extra_sections = []
+        if image_description:
+            extra_sections.append(
+                "WHAT YOU JUST SAW (you took a picture with your camera):\n"
+                f"\"{image_description}\"\n\n"
+                "The user asked you to look at something — react to what you see! "
+                "Be specific about details in the image. Share your genuine reaction."
+            )
+        if search_context:
+            extra_sections.append(
+                "WEB SEARCH RESULTS (you just searched the internet for them):\n"
+                f"{search_context}\n\n"
+                "Share these findings naturally — like a friend who just looked something up. "
+                "Cite specific facts, numbers, or details. Be enthusiastic about what you found. "
+                "You can editorialize and share your own reaction to the facts."
+            )
+
         prompt = RESPOND_TEMPLATE.format(
             message=message,
             context=context or "general activities",
             history_section=history_section,
+            vision_section="\n\n".join(extra_sections),
         )
 
         try:
