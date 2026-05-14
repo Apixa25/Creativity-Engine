@@ -66,7 +66,8 @@ class VisionConfig:
 class AudioConfig:
     enabled: bool = True
     device_index: int | None = None
-    capture_seconds: float = 5.0
+    capture_seconds: float = 2.0
+    vad_threshold: float = 0.003
     base_weight_direct: float = 1.0
     base_weight_overheard: float = 0.25
 
@@ -154,7 +155,8 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
             audio=AudioConfig(
                 enabled=aud.get("enabled", True),
                 device_index=aud.get("device_index"),
-                capture_seconds=aud.get("capture_seconds", 5.0),
+                capture_seconds=aud.get("capture_seconds", 2.0),
+                vad_threshold=aud.get("vad_threshold", 0.003),
                 base_weight_direct=aud.get("base_weight_direct", 1.0),
                 base_weight_overheard=aud.get("base_weight_overheard", 0.25),
             ),

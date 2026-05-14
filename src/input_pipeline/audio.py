@@ -11,9 +11,7 @@ from __future__ import annotations
 
 import io
 import os
-import tempfile
 from collections import deque
-from pathlib import Path
 
 import numpy as np
 
@@ -26,10 +24,11 @@ class AudioChannel:
         history_window: int = 10,
         base_weight_direct: float = 1.0,
         base_weight_overheard: float = 0.25,
-        capture_seconds: float = 5.0,
+        capture_seconds: float = 2.0,
         sample_rate: int = 16000,
         api_key: str = "",
         device_index: int | None = None,
+        vad_threshold: float = 0.003,
     ):
         self.history_window = history_window
         self.base_weight_direct = base_weight_direct
@@ -38,9 +37,12 @@ class AudioChannel:
         self.sample_rate = sample_rate
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.device_index = device_index
+        self.vad_threshold = vad_threshold
         self._transcript_history: deque[str] = deque(maxlen=history_window)
         self._available = False
         self._initialized = False
+        self._whisper_client = None
+        self.paused = False
 
     @staticmethod
     def list_devices() -> list[dict]:
@@ -99,7 +101,7 @@ class AudioChannel:
         return self._available
 
     def capture_audio(self, quiet: bool = False) -> np.ndarray | None:
-        """Record a short audio clip from the microphone. Returns numpy array or None."""
+        """Record a short fixed-duration audio clip. Used by heartbeat perception."""
         if not self._available:
             return None
         try:
@@ -121,35 +123,128 @@ class AudioChannel:
                 print(f"   [MIC OFF] Capture error: {e}")
             return None
 
-    def has_speech(self, audio: np.ndarray, threshold: float = 0.01) -> bool:
-        """Simple voice activity detection — is the RMS energy above threshold?"""
-        rms = np.sqrt(np.mean(audio ** 2))
-        return rms > threshold
+    def capture_smart(
+        self,
+        probe_seconds: float = 0.5,
+        max_seconds: float = 10.0,
+        silence_timeout: float = 1.2,
+        quiet: bool = True,
+        debug_rms: bool = False,
+    ) -> np.ndarray | None:
+        """Voice-activity-driven capture: waits for speech, records until
+        the speaker pauses, then returns the full utterance as one array.
+
+        probe_seconds  — length of each mini-recording chunk
+        max_seconds    — hard cap on total recording length
+        silence_timeout — stop after this many seconds of silence following speech
+        debug_rms      — print RMS levels for threshold tuning
+        """
+        if not self._available:
+            return None
+        try:
+            import sounddevice as sd
+
+            chunk_samples = int(probe_seconds * self.sample_rate)
+            chunks: list[np.ndarray] = []
+            speech_started = False
+            silent_since = 0.0
+            total_seconds = 0.0
+
+            while total_seconds < max_seconds:
+                if self.paused:
+                    if chunks:
+                        break
+                    return None
+
+                chunk = sd.rec(chunk_samples, samplerate=self.sample_rate,
+                               channels=1, dtype="float32")
+                sd.wait()
+                flat = chunk.flatten()
+                total_seconds += probe_seconds
+
+                rms = float(np.sqrt(np.mean(flat.astype(np.float64) ** 2)))
+                is_speech = rms > self.vad_threshold
+
+                if debug_rms:
+                    bar = "#" * min(int(rms * 2000), 50)
+                    marker = " << SPEECH" if is_speech else ""
+                    print(f"   [RMS] {rms:.5f} [{bar}]{marker}")
+
+                if is_speech:
+                    if not speech_started:
+                        speech_started = True
+                        self._play_listening_tone()
+                        if not quiet:
+                            print(f"   * Recording...")
+                    chunks.append(flat)
+                    silent_since = 0.0
+                elif speech_started:
+                    chunks.append(flat)
+                    silent_since += probe_seconds
+                    if silent_since >= silence_timeout:
+                        break
+
+            if not chunks:
+                return None
+
+            return np.concatenate(chunks)
+
+        except Exception as e:
+            if not quiet:
+                print(f"   [Audio] Smart capture error: {e}")
+            return None
+
+    def _play_listening_tone(self) -> None:
+        """Play a short audible tone so the user knows recording has started.
+        Uses winsound on Windows (separate from sounddevice) to avoid
+        conflicts with ongoing audio recording."""
+        try:
+            import sys
+            if sys.platform == "win32":
+                import winsound
+                winsound.Beep(880, 120)
+            else:
+                print("\a", end="", flush=True)
+        except Exception:
+            pass
+
+    def has_speech(self, audio: np.ndarray, threshold: float | None = None) -> bool:
+        """Voice activity detection — is the RMS energy above threshold?"""
+        audio_f = audio.astype(np.float64)
+        rms = np.sqrt(np.mean(audio_f ** 2))
+        t = threshold if threshold is not None else self.vad_threshold
+        return float(rms) > t
+
+    def _get_whisper_client(self):
+        """Reuse a single AsyncOpenAI client for all transcriptions."""
+        if self._whisper_client is None:
+            from openai import AsyncOpenAI
+            self._whisper_client = AsyncOpenAI(api_key=self._api_key or None)
+        return self._whisper_client
 
     async def transcribe(self, audio: np.ndarray) -> str:
-        """Transcribe audio using OpenAI Whisper API."""
+        """Transcribe audio using OpenAI Whisper API. Uses in-memory buffer."""
         try:
             import wave
-            temp_path = Path(tempfile.gettempdir()) / "creativity_audio.wav"
+
+            buf = io.BytesIO()
             audio_int16 = (audio * 32767).astype(np.int16)
-            with wave.open(str(temp_path), "w") as wf:
+            with wave.open(buf, "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
                 wf.setframerate(self.sample_rate)
                 wf.writeframes(audio_int16.tobytes())
 
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self._api_key or None)
-            with open(temp_path, "rb") as f:
-                response = await client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=f,
-                    language="en",
-                )
-            transcript = response.text.strip()
+            buf.seek(0)
+            buf.name = "audio.wav"
 
-            temp_path.unlink(missing_ok=True)
-            return transcript
+            client = self._get_whisper_client()
+            response = await client.audio.transcriptions.create(
+                model="whisper-1",
+                file=buf,
+                language="en",
+            )
+            return response.text.strip()
 
         except Exception as e:
             print(f"   [Audio] Transcription error: {e}")

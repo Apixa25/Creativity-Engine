@@ -65,7 +65,7 @@ Return ONLY one word: DIRECT or OVERHEARD"""
 
 
 class AddressDetector:
-    CONVERSATION_WINDOW_SECONDS = 30.0
+    CONVERSATION_WINDOW_SECONDS = 15.0
 
     def __init__(self, llm: LLMAdapter | None = None, wake_phrases: list[str] | None = None):
         self.llm = llm
@@ -87,16 +87,33 @@ class AddressDetector:
         """Manually close the conversation window."""
         self._last_direct_time = 0.0
 
+    DISMISS_PHRASES = [
+        "goodbye", "bye", "that's all", "thats all", "never mind",
+        "nevermind", "i'm done", "see you later", "talk to you later",
+        "okay bye", "ok bye",
+    ]
+
     def detect(self, transcript: str, context: str = "") -> AddressResult:
         """
         Fast detection using wake word matching + conversation window.
-        If the user recently talked to the engine (within 30s), all speech
+        If the user recently talked to the engine (within 15s), all speech
         is treated as DIRECT — no need to repeat the wake word.
+        Dismiss phrases ("goodbye", "that's all") end conversation mode.
         """
         if not transcript or not transcript.strip():
             return AddressResult(mode="SILENCE", transcript=transcript)
 
         clean = transcript.strip()
+
+        if self.in_conversation and self._is_dismiss(clean):
+            self.end_conversation()
+            return AddressResult(
+                mode="DIRECT",
+                message=clean,
+                transcript=clean,
+                wake_word_found=False,
+                confidence=0.9,
+            )
         found, message = self._check_wake_word(clean)
 
         if found:
@@ -173,3 +190,8 @@ class AddressDetector:
                 return True, after
 
         return False, ""
+
+    def _is_dismiss(self, transcript: str) -> bool:
+        """Check if the user is ending the conversation."""
+        lower = transcript.lower().strip()
+        return any(phrase in lower for phrase in self.DISMISS_PHRASES)

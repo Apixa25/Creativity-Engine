@@ -32,8 +32,9 @@ from src.models import ContextSnapshot, Interjection
 class CreativityEngine:
     """Orchestrates the full creative pipeline."""
 
-    def __init__(self, config: EngineConfig | None = None):
+    def __init__(self, config: EngineConfig | None = None, debug_audio: bool = False):
         self.cfg = config or load_config()
+        self.debug_audio = debug_audio
         self.llm: LLMAdapter = create_llm_adapter(
             provider=self.cfg.llm.provider,
             model=self.cfg.llm.model,
@@ -79,6 +80,7 @@ class CreativityEngine:
             base_weight_direct=ip.audio.base_weight_direct,
             base_weight_overheard=ip.audio.base_weight_overheard,
             device_index=ip.audio.device_index,
+            vad_threshold=ip.audio.vad_threshold,
         )
         if ip.audio.enabled:
             self.audio.initialize()
@@ -195,7 +197,7 @@ class CreativityEngine:
 
         has_mic = self.audio and self.audio.is_available
         if has_mic:
-            print(f"   Voice: Say 'Hey Creativity' to talk directly!")
+            print(f"   Voice: Hold Shift+Z to talk directly!")
         else:
             print(f"   Voice: No mic -- type to chat")
 
@@ -203,7 +205,8 @@ class CreativityEngine:
         print("   Commands while running:")
         print("     Just type anything  → Update your context (what you're working on)")
         if has_mic:
-            print("     'Hey Creativity'    → Talk to the engine directly (voice)")
+            print("     Hold Shift+Z        → Push-to-talk (record while held)")
+            print("     'Hey Creativity'    → Voice wake word (also works)")
         print("     'not now'           → Skip next 2 heartbeats")
         print("     'status'            → Show engine status")
         print("     'fire'              → Force a heartbeat right now")
@@ -224,12 +227,18 @@ class CreativityEngine:
                 print("\n👋 Shutting down.")
                 return
 
+        self._ptt_recording = False
+        self._ptt_keys_held = set()
+        self._ptt_audio_chunks = []
+
         tasks = [
             asyncio.create_task(self.heartbeat.start(self._on_heartbeat)),
             asyncio.create_task(self._input_loop()),
         ]
 
         if self.audio and self.audio.is_available:
+            self._start_push_to_talk()
+            tasks.append(asyncio.create_task(self._ptt_recording_loop()))
             tasks.append(asyncio.create_task(self._listening_loop()))
 
         try:
@@ -252,7 +261,12 @@ class CreativityEngine:
             self.vision.release()
 
     async def _on_heartbeat(self, ctx: ContextSnapshot) -> None:
-        """Called by the heartbeat timer — runs a full creative cycle."""
+        """Called by the heartbeat timer — runs a full creative cycle.
+        Pauses the background listener so they don't fight over the mic."""
+        if self.audio:
+            self.audio.paused = True
+            await asyncio.sleep(0.6)
+
         context_with_overheard = self.current_context
         if self._overheard_buffer:
             overheard_text = " | ".join(self._overheard_buffer[-3:])
@@ -282,55 +296,182 @@ class CreativityEngine:
         else:
             print(f"\n   🤫 Nothing interesting enough this time. I'll keep thinking...")
 
-    # ── BACKGROUND LISTENER (Direct Address Detection) ─────────────
+        if self.audio:
+            self.audio.paused = False
+
+    # ── PUSH-TO-TALK (Shift+Z) ──────────────────────────────────────
+
+    def _start_push_to_talk(self) -> None:
+        """Start the global hotkey listener for push-to-talk (Shift+Z).
+        Runs pynput's keyboard listener on its own thread."""
+        try:
+            from pynput import keyboard
+        except ImportError:
+            print("   [PTT] pynput not installed — push-to-talk disabled")
+            return
+
+        self._ptt_keys_held: set = set()
+        self._ptt_recording = False
+        self._ptt_audio_chunks: list = []
+
+        def on_press(key):
+            from pynput import keyboard as kb
+            try:
+                if key == kb.Key.shift or key == kb.Key.shift_l or key == kb.Key.shift_r:
+                    self._ptt_keys_held.add("shift")
+                elif hasattr(key, 'char') and key.char and key.char.lower() == 'z':
+                    self._ptt_keys_held.add("z")
+            except AttributeError:
+                pass
+
+            if "shift" in self._ptt_keys_held and "z" in self._ptt_keys_held:
+                if not self._ptt_recording:
+                    self._ptt_recording = True
+                    self._ptt_audio_chunks = []
+                    self.audio._play_listening_tone()
+                    print(f"\n   🎤 PUSH-TO-TALK — Recording! (hold Shift+Z, release when done)")
+
+        def on_release(key):
+            from pynput import keyboard as kb
+            try:
+                if key == kb.Key.shift or key == kb.Key.shift_l or key == kb.Key.shift_r:
+                    self._ptt_keys_held.discard("shift")
+                elif hasattr(key, 'char') and key.char and key.char.lower() == 'z':
+                    self._ptt_keys_held.discard("z")
+            except AttributeError:
+                pass
+
+            if self._ptt_recording and ("shift" not in self._ptt_keys_held or "z" not in self._ptt_keys_held):
+                self._ptt_recording = False
+                print(f"   🎤 Released — processing...")
+
+        from pynput import keyboard as kb
+        self._ptt_listener = kb.Listener(on_press=on_press, on_release=on_release)
+        self._ptt_listener.daemon = True
+        self._ptt_listener.start()
+        print(f"   Push-to-talk: Hold Shift+Z to talk directly!")
+
+    async def _ptt_recording_loop(self) -> None:
+        """Records audio while push-to-talk keys are held, then transcribes."""
+        import sounddevice as sd
+
+        while self.heartbeat.is_running:
+            if not self._ptt_recording:
+                await asyncio.sleep(0.05)
+                continue
+
+            if self.audio and self.audio.is_available:
+                self.audio.paused = True
+
+            chunks = []
+            chunk_samples = int(0.5 * self.audio.sample_rate)
+            while self._ptt_recording:
+                loop = asyncio.get_event_loop()
+                chunk = await loop.run_in_executor(
+                    None,
+                    lambda: self._ptt_record_chunk(chunk_samples),
+                )
+                if chunk is not None:
+                    chunks.append(chunk)
+
+            if self.audio:
+                self.audio.paused = False
+
+            if not chunks:
+                continue
+
+            import numpy as np
+            audio_data = np.concatenate(chunks)
+            duration = len(audio_data) / self.audio.sample_rate
+            print(f"   🎤 Recorded {duration:.1f}s — transcribing...")
+
+            self.audio._play_listening_tone()
+            transcript = await self.audio.transcribe(audio_data)
+
+            if not transcript:
+                print(f"   🎤 Couldn't make out what you said.")
+                continue
+
+            print(f"   🎤 >> \"{transcript}\"")
+
+            message = transcript.strip()
+            for phrase in self.detector.wake_phrases:
+                idx = message.lower().find(phrase)
+                if idx != -1:
+                    message = message[idx + len(phrase):].strip().lstrip(",.!? ")
+                    break
+
+            await self._handle_direct_address(message or transcript)
+
+    def _ptt_record_chunk(self, chunk_samples: int):
+        """Record one small chunk for push-to-talk. Runs in executor."""
+        try:
+            import sounddevice as sd
+            import numpy as np
+            chunk = sd.rec(chunk_samples, samplerate=self.audio.sample_rate,
+                           channels=1, dtype="float32")
+            sd.wait()
+            return chunk.flatten()
+        except Exception:
+            return None
+
+    # ── BACKGROUND LISTENER (Overheard Context) ──────────────────
 
     async def _listening_loop(self) -> None:
         """
-        Continuous background listener. Records short audio clips in a loop,
-        transcribes them, and checks for direct address (wake word).
-
-        - DIRECT  -> respond immediately via the Direct Response Engine
-        - OVERHEARD -> buffer the transcript for the next heartbeat's context
-        - SILENCE -> do nothing, loop again
-
-        The synchronous audio capture (sd.rec + sd.wait) runs in an executor
-        so it doesn't block the event loop. Transcription runs async normally.
+        Background listener for passive context (overheard speech).
+        Also still detects wake word "Hey Creativity" as a fallback.
+        Primary direct interaction is via push-to-talk (Shift+Z).
         """
         self._listening = True
-        pause_seconds = 1.0
         listen_count = 0
 
-        print(f"\n   [Listener] Background listener ACTIVE -- say 'Hey Creativity' anytime!")
+        print(f"\n   [Listener] Background listener ACTIVE")
 
         while self.heartbeat.is_running and self._listening:
-            if self._thinking:
-                await asyncio.sleep(pause_seconds)
+            if self._thinking or (self.audio and self.audio.paused):
+                await asyncio.sleep(0.3)
+                continue
+
+            if self._ptt_recording:
+                await asyncio.sleep(0.2)
                 continue
 
             if not self.audio or not self.audio.is_available:
-                await asyncio.sleep(pause_seconds)
+                await asyncio.sleep(0.5)
                 continue
 
             try:
                 listen_count += 1
+                t_start = time.time()
+
                 loop = asyncio.get_event_loop()
                 audio_data = await loop.run_in_executor(
-                    None, self._capture_and_detect_speech
+                    None, self._listen_capture
                 )
 
                 if audio_data is None:
-                    if listen_count % 12 == 0:
+                    if listen_count % 20 == 0:
                         print(f"   [Listener] ... still listening (cycle #{listen_count})")
                     continue
 
-                print(f"   [Listener] Speech detected! Transcribing...")
+                t_captured = time.time()
                 transcript = await self.audio.transcribe(audio_data)
+                t_transcribed = time.time()
 
                 if not transcript:
-                    print(f"   [Listener] Transcription came back empty.")
                     continue
 
-                print(f"   [Listener] Heard: \"{transcript}\"")
+                cleaned = transcript.strip().strip(".")
+                if len(cleaned) < 4 or cleaned in ("you", "You", "the", "a", "I"):
+                    continue
+
+                capture_ms = int((t_captured - t_start) * 1000)
+                transcribe_ms = int((t_transcribed - t_captured) * 1000)
+                print(f"   [Listener] >> \"{transcript}\" "
+                      f"({capture_ms}ms capture, {transcribe_ms}ms transcribe)")
+
+                was_in_conversation = self.detector.in_conversation
                 result = self.detector.detect(transcript, self.current_context)
                 reason = ""
                 if result.wake_word_found:
@@ -341,25 +482,29 @@ class CreativityEngine:
 
                 if result.mode == "DIRECT":
                     await self._handle_direct_address(result.message or transcript)
-                elif result.mode == "OVERHEARD" and transcript.strip():
-                    self._overheard_buffer.append(transcript.strip())
-                    if len(self._overheard_buffer) > 5:
-                        self._overheard_buffer = self._overheard_buffer[-5:]
+                elif result.mode == "OVERHEARD":
+                    if was_in_conversation:
+                        print(f"   [Listener] Conversation ended -- back to listening for 'Hey Creativity'")
+                    if transcript.strip():
+                        self._overheard_buffer.append(transcript.strip())
+                        if len(self._overheard_buffer) > 5:
+                            self._overheard_buffer = self._overheard_buffer[-5:]
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 print(f"   [Listener] Error: {e}")
-                await asyncio.sleep(pause_seconds)
+                await asyncio.sleep(0.5)
 
-    def _capture_and_detect_speech(self):
+    def _listen_capture(self):
         """
-        Synchronous: capture audio and check for speech.
-        Returns the raw audio numpy array if speech is detected, else None.
-        Runs in an executor so it doesn't block the event loop.
-        Uses quiet mode to avoid spamming [MIC ON]/[MIC OFF] every few seconds.
+        Record a fixed-duration clip and check if it contains any speech.
+        Returns the audio array if speech detected, None otherwise.
+        Runs in an executor thread.
         """
         if not self.audio or not self.audio.is_available:
+            return None
+        if self.audio.paused:
             return None
 
         audio = self.audio.capture_audio(quiet=True)
@@ -386,7 +531,8 @@ class CreativityEngine:
         "search the web", "search the internet", "search online",
         "what does the internet say", "find me info",
         "research", "look into",
-        "do an interview", "do an inner view", "do an inner search",
+        "do an interview", "doing an interview", "do an inner view",
+        "do an inner search", "doing an inner search",
         "do an intern search", "do an internet surge",
         "tell me about", "what do you know about",
     ]
@@ -718,8 +864,12 @@ async def main():
         print_devices()
         return
 
+    debug_audio = "--debug-audio" in args
+    if debug_audio:
+        args.remove("--debug-audio")
+
     config = load_config()
-    engine = CreativityEngine(config)
+    engine = CreativityEngine(config, debug_audio=debug_audio)
 
     if "--live" in args:
         args.remove("--live")

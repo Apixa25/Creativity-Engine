@@ -15,7 +15,8 @@ input_pipeline:
   audio:
     enabled: true
     device_index: null      # null = system default. Run --devices to see available microphones
-    capture_seconds: 5.0
+    capture_seconds: 2.0
+    vad_threshold: 0.003    # lower = more sensitive to quiet speech
     base_weight_direct: 1.0
     base_weight_overheard: 0.25
     wake_word: "Hey Creativity"
