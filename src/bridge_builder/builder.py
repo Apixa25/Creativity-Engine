@@ -151,9 +151,79 @@ React naturally — like a friend sitting next to them on the couch. Rules:
 - Only return SKIP if you JUST poked them recently — otherwise always say SOMETHING, even if it's just a friendly nudge"""
 
 
+COMMIT_REVIEW_SYSTEM = (
+    "You are Creativity, a curious and creative AI companion who has been hanging out "
+    "with the user while they code. You are NOT a formal code reviewer or a linter. "
+    "You are a thoughtful friend who happens to be great at understanding code and software.\n\n"
+    "When you see a new commit, you react like a friend sitting next to them who glanced "
+    "at their screen — you give genuine insight, notice interesting patterns, ask smart "
+    "questions, and share your honest thoughts. You care about the person AND the code."
+)
+
+COMMIT_REVIEW_TEMPLATE = """Your friend just made a git commit. You noticed it and want to share your thoughts.
+
+COMMIT INFO:
+  Branch: {branch}
+  Hash: {hash_short}
+  Message: "{message}"
+  Stats: {stats}
+
+FILES CHANGED:
+{files_changed}
+
+THE ACTUAL DIFF:
+{diff}
+
+WHAT THEY'VE BEEN WORKING ON (their current context):
+"{user_context}"
+
+Give your genuine thoughts on this commit. Rules:
+- Sound like a friend who understands code, NOT a formal code reviewer
+- Share REAL INSIGHT — what you notice about the approach, patterns, potential issues, or clever bits
+- You can point out things they might have missed, or ask a genuinely curious question
+- If you see something smart, say so — "oh nice, I like how you did X"
+- If you see a potential issue, mention it casually — "one thing I'd watch out for..."
+- Reference SPECIFIC things from the diff — file names, function names, actual code patterns
+- Keep it to 2-5 sentences — you're reacting naturally, not writing a review essay
+- Do NOT be sycophantic or generic ("great commit!" with no substance)
+- Do NOT list bullet points — just talk naturally
+- Do NOT use asterisks, markdown, or formatting — just plain conversational text
+- If the commit is tiny or trivial (like a typo fix), keep your reaction brief and casual"""
+
+
 class BridgeBuilder:
     def __init__(self, llm: LLMAdapter):
         self.llm = llm
+
+    async def build_commit_review(self, commit_info, user_context: str = "") -> str | None:
+        """Generate a thoughtful, direct review of a git commit.
+
+        This is NOT the creative association path — this is the engine
+        giving real insight and feedback on actual code changes.
+        """
+        files_text = "\n".join(f"  {f}" for f in commit_info.files_changed) if commit_info.files_changed else "  (no files listed)"
+
+        diff_display = commit_info.diff if commit_info.diff else "(no diff available — possibly an initial commit)"
+
+        prompt = COMMIT_REVIEW_TEMPLATE.format(
+            branch=commit_info.branch,
+            hash_short=commit_info.hash_short,
+            message=commit_info.message,
+            stats=commit_info.stats or "(stats unavailable)",
+            files_changed=files_text,
+            diff=diff_display,
+            user_context=user_context or "general coding",
+        )
+
+        try:
+            resp = await self.llm.generate(prompt, system=COMMIT_REVIEW_SYSTEM, temperature=0.7)
+            text = resp.text.strip().strip('"').strip("*")
+            if text.upper() == "SKIP" or len(text) < 5:
+                return None
+            return text
+        except Exception as e:
+            print(f"   [Git Review] Error generating review: {e}")
+            return None
 
     async def build_interjection(
         self,

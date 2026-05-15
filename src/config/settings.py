@@ -82,6 +82,14 @@ class VoiceOutputConfig:
 
 
 @dataclass
+class GitMonitorConfig:
+    enabled: bool = True
+    poll_interval_seconds: int = 30
+    max_diff_chars: int = 4000
+    repo_path: str = "."          # path to the git repo to watch
+
+
+@dataclass
 class InputPipelineConfig:
     vision: VisionConfig = field(default_factory=VisionConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
@@ -95,6 +103,7 @@ class EngineConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     input_pipeline: InputPipelineConfig = field(default_factory=InputPipelineConfig)
     voice: VoiceOutputConfig = field(default_factory=VoiceOutputConfig)
+    git: GitMonitorConfig = field(default_factory=GitMonitorConfig)
 
 
 def load_config(config_path: str | Path | None = None) -> EngineConfig:
@@ -125,6 +134,7 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
     vis = ip.get("vision", {})
     aud = ip.get("audio", {})
     voice_raw = raw.get("voice", {})
+    git_raw = raw.get("git", {})
 
     return EngineConfig(
         heartbeat=HeartbeatConfig(
@@ -178,5 +188,11 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
             model=voice_raw.get("model", "tts-1"),
             voice=voice_raw.get("voice", "nova"),
             speed=voice_raw.get("speed", 1.0),
+        ),
+        git=GitMonitorConfig(
+            enabled=git_raw.get("enabled", True),
+            poll_interval_seconds=git_raw.get("poll_interval_seconds", 30),
+            max_diff_chars=git_raw.get("max_diff_chars", 4000),
+            repo_path=git_raw.get("repo_path", "."),
         ),
     )

@@ -27,6 +27,7 @@ from src.input_pipeline.assembler import ContextAssembler
 from src.input_pipeline.address_detector import AddressDetector
 from src.conversation.responder import DirectResponder
 from src.output.voice import VoiceOutput, VoiceConfig
+from src.input_pipeline.git_monitor import GitMonitor
 from src.models import ContextSnapshot, Interjection
 
 
@@ -66,6 +67,11 @@ class CreativityEngine:
             voice=self.cfg.voice.voice,
             speed=self.cfg.voice.speed,
         ))
+        self.git_monitor: GitMonitor = GitMonitor(
+            repo_path=self.cfg.git.repo_path,
+            poll_interval_seconds=self.cfg.git.poll_interval_seconds,
+            max_diff_chars=self.cfg.git.max_diff_chars,
+        )
         self._overheard_buffer: list[str] = []
 
     def enable_multimodal(self) -> None:
@@ -203,6 +209,8 @@ class CreativityEngine:
 
         self.enable_multimodal()
         self.voice.initialize()
+        if self.cfg.git.enabled:
+            self.git_monitor.initialize()
 
         has_mic = self.audio and self.audio.is_available
         if has_mic:
@@ -255,6 +263,9 @@ class CreativityEngine:
             tasks.append(asyncio.create_task(self._ptt_recording_loop()))
             tasks.append(asyncio.create_task(self._listening_loop()))
 
+        if self.git_monitor.is_available:
+            tasks.append(asyncio.create_task(self.git_monitor.start(self._on_new_commit)))
+
         try:
             done, pending = await asyncio.wait(
                 tasks,
@@ -270,6 +281,7 @@ class CreativityEngine:
             pass
 
         self._listening = False
+        self.git_monitor.stop()
         print("\n👋 Creativity Engine shutting down. Stay creative!")
         if self.vision:
             self.vision.release()
@@ -348,6 +360,52 @@ class CreativityEngine:
                 print(f"\n   😌 Nothing to comment on — just vibing.")
         finally:
             self._thinking = False
+
+    # ── GIT COMMIT REVIEW (direct insight, no creative associations) ──
+
+    async def _on_new_commit(self, commit_info) -> None:
+        """Called when the git monitor detects a new commit.
+        Bypasses the entire creative pipeline — goes straight to the LLM
+        for direct, thoughtful feedback on what was actually committed."""
+        if self.audio:
+            self.audio.paused = True
+
+        self._thinking = True
+        try:
+            print(f"\n{'═' * 70}")
+            print(f"📝 GIT COMMIT DETECTED")
+            print(f"   {commit_info.hash_short} on {commit_info.branch}")
+            print(f"   \"{commit_info.message.splitlines()[0][:70]}\"")
+            print(f"   {commit_info.stats}")
+            if commit_info.files_changed:
+                for f in commit_info.files_changed[:8]:
+                    print(f"      {f}")
+                if len(commit_info.files_changed) > 8:
+                    print(f"      ... and {len(commit_info.files_changed) - 8} more files")
+            print(f"{'─' * 70}")
+            print(f"   🧠 Reading the diff and thinking...")
+
+            review = await self.bridge.build_commit_review(
+                commit_info,
+                user_context=self.current_context,
+            )
+
+            if review:
+                print(f"\n{'═' * 70}")
+                print(f"💬 CREATIVITY ON YOUR COMMIT [{commit_info.hash_short}]:\n")
+                print(f"   \"{review}\"")
+                print(f"\n{'═' * 70}")
+                self.responder.add_engine_interjection(review)
+                await self._speak(review)
+            else:
+                print(f"   📝 Saw the commit, nothing specific to say about this one.")
+
+        except Exception as e:
+            print(f"   [Git Review] Error: {e}")
+        finally:
+            self._thinking = False
+            if self.audio:
+                self.audio.paused = False
 
     # ── VOICE OUTPUT ─────────────────────────────────────────────────
 

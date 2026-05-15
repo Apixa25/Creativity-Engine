@@ -58,6 +58,12 @@ voice:
   voice: "nova"          # alloy, echo, fable, onyx, nova, shimmer
   speed: 1.0             # 0.25 (slow) to 4.0 (fast) — 1.0 is natural
 
+git:
+  enabled: true
+  poll_interval_seconds: 30   # how often to check for new commits
+  max_diff_chars: 4000        # truncate large diffs to keep LLM context manageable
+  repo_path: "."              # path to git repo (. = current directory)
+
 output:
   max_interjection_sentences: 3
   rate_limit_per_cycle: 1
