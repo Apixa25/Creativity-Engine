@@ -74,6 +74,14 @@ class AudioConfig:
 
 
 @dataclass
+class VoiceOutputConfig:
+    enabled: bool = True
+    model: str = "tts-1"          # "tts-1" (fast) or "tts-1-hd" (higher quality)
+    voice: str = "nova"           # alloy, echo, fable, onyx, nova, shimmer
+    speed: float = 1.0            # 0.25 to 4.0
+
+
+@dataclass
 class InputPipelineConfig:
     vision: VisionConfig = field(default_factory=VisionConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
@@ -86,6 +94,7 @@ class EngineConfig:
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     input_pipeline: InputPipelineConfig = field(default_factory=InputPipelineConfig)
+    voice: VoiceOutputConfig = field(default_factory=VoiceOutputConfig)
 
 
 def load_config(config_path: str | Path | None = None) -> EngineConfig:
@@ -115,6 +124,7 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
     ip = raw.get("input_pipeline", {})
     vis = ip.get("vision", {})
     aud = ip.get("audio", {})
+    voice_raw = raw.get("voice", {})
 
     return EngineConfig(
         heartbeat=HeartbeatConfig(
@@ -162,5 +172,11 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
                 base_weight_direct=aud.get("base_weight_direct", 1.0),
                 base_weight_overheard=aud.get("base_weight_overheard", 0.25),
             ),
+        ),
+        voice=VoiceOutputConfig(
+            enabled=voice_raw.get("enabled", True),
+            model=voice_raw.get("model", "tts-1"),
+            voice=voice_raw.get("voice", "nova"),
+            speed=voice_raw.get("speed", 1.0),
         ),
     )

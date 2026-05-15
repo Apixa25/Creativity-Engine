@@ -26,6 +26,7 @@ from src.input_pipeline.audio import AudioChannel
 from src.input_pipeline.assembler import ContextAssembler
 from src.input_pipeline.address_detector import AddressDetector
 from src.conversation.responder import DirectResponder
+from src.output.voice import VoiceOutput, VoiceConfig
 from src.models import ContextSnapshot, Interjection
 
 
@@ -59,6 +60,12 @@ class CreativityEngine:
         self.assembler: ContextAssembler | None = None
         self.detector: AddressDetector = AddressDetector(llm=self.llm)
         self.responder: DirectResponder = DirectResponder(llm=self.llm)
+        self.voice: VoiceOutput = VoiceOutput(VoiceConfig(
+            enabled=self.cfg.voice.enabled,
+            model=self.cfg.voice.model,
+            voice=self.cfg.voice.voice,
+            speed=self.cfg.voice.speed,
+        ))
         self._overheard_buffer: list[str] = []
 
     def enable_multimodal(self) -> None:
@@ -195,12 +202,15 @@ class CreativityEngine:
             print(f"   Context: \"{self.current_context}\"")
 
         self.enable_multimodal()
+        self.voice.initialize()
 
         has_mic = self.audio and self.audio.is_available
         if has_mic:
-            print(f"   Voice: Hold Shift+Z to talk directly!")
+            print(f"   Mic Input: Hold Shift+Z to talk directly!")
         else:
-            print(f"   Voice: No mic -- type to chat")
+            print(f"   Mic Input: No mic -- type to chat")
+        voice_status = f"🔊 {self.voice.cfg.voice}" if self.voice.is_available else "🔇 Disabled"
+        print(f"   Voice Output: {voice_status}")
 
         print(f"\n{'─' * 70}")
         print("   Commands while running:")
@@ -211,6 +221,9 @@ class CreativityEngine:
         print("     'not now'           → Skip next 2 heartbeats")
         print("     'status'            → Show engine status")
         print("     'fire'              → Force a heartbeat right now")
+        print("     'mute' / 'unmute'   → Toggle voice output on/off")
+        print("     'voice <name>'      → Switch voice (alloy/echo/fable/onyx/nova/shimmer)")
+        print("     'voice list'        → Show all available voices")
         print("     'quit'              → Shut down")
         print(f"{'─' * 70}")
 
@@ -314,6 +327,7 @@ class CreativityEngine:
             print(f"\n{'═' * 70}")
             self._print_citations(interjection)
             self.responder.add_engine_interjection(interjection.interjection_text)
+            await self._speak(interjection.interjection_text)
         else:
             print(f"\n   🤫 Nothing interesting enough this time. I'll keep thinking...")
 
@@ -329,10 +343,25 @@ class CreativityEngine:
                 print(f"   \"{observation}\"")
                 print(f"{'─' * 50}")
                 self.responder.add_engine_interjection(observation)
+                await self._speak(observation)
             else:
                 print(f"\n   😌 Nothing to comment on — just vibing.")
         finally:
             self._thinking = False
+
+    # ── VOICE OUTPUT ─────────────────────────────────────────────────
+
+    async def _speak(self, text: str) -> None:
+        """Speak text aloud via TTS. Pauses mic to avoid feedback loop."""
+        if not self.voice.is_available:
+            return
+        if self.audio:
+            self.audio.paused = True
+        try:
+            await self.voice.speak(text, wait=True)
+        finally:
+            if self.audio:
+                self.audio.paused = False
 
     # ── PUSH-TO-TALK (Shift+Z) ──────────────────────────────────────
 
@@ -609,6 +638,7 @@ class CreativityEngine:
             for url in search_sources:
                 print(f"   📎 {url}")
             print()
+        await self._speak(reply)
 
     def _is_picture_request(self, message: str) -> bool:
         """Check if the user is asking the engine to look at something."""
@@ -701,15 +731,39 @@ class CreativityEngine:
                 secs = remaining % 60
                 thinking = "🧠 Thinking..." if self._thinking else "😌 Idle"
                 listening = "🎙️ Active" if self._listening else "Off"
+                voice_st = f"🔊 {self.voice.cfg.voice}" if self.voice.is_available else "🔇 Off"
                 print(f"\n   📊 Status:")
                 print(f"      State: {thinking}")
                 print(f"      Listener: {listening}")
+                print(f"      Voice: {voice_st}")
                 print(f"      Context: \"{self.current_context}\"")
                 print(f"      Heartbeats fired: {self.heartbeat.beat_count}")
                 print(f"      Next heartbeat: ~{mins}m {secs}s")
                 print(f"      Past topics: {len(self.past_topics)}")
                 print(f"      Overheard buffer: {len(self._overheard_buffer)} items")
                 print(f"      Conversation turns: {len(self.responder.history)}")
+
+            elif cmd == "mute":
+                self.voice.cfg.enabled = False
+                self.voice._available = False
+                print("   🔇 Voice muted — text only mode")
+
+            elif cmd == "unmute":
+                self.voice.cfg.enabled = True
+                self.voice._available = True
+                print(f"   🔊 Voice unmuted — speaking as {self.voice.cfg.voice}")
+
+            elif cmd.startswith("voice "):
+                new_voice = cmd.split(" ", 1)[1].strip().lower()
+                from src.output.voice import VOICE_DESCRIPTIONS
+                if new_voice == "list":
+                    VoiceOutput.list_voices()
+                elif new_voice in VOICE_DESCRIPTIONS:
+                    self.voice.cfg.voice = new_voice
+                    print(f"   🔊 Voice changed to: {new_voice} ({VOICE_DESCRIPTIONS[new_voice]})")
+                    await self._speak(f"Hey! This is my {new_voice} voice. How do I sound?")
+                else:
+                    print(f"   ❓ Unknown voice '{new_voice}'. Available: {', '.join(VOICE_DESCRIPTIONS.keys())}")
 
             elif cmd == "fire":
                 if self._thinking:
