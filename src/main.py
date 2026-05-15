@@ -53,6 +53,7 @@ class CreativityEngine:
         self._thinking = False
         self._listening = False
         self._multimodal = False
+        self._force_creative = False
         self.vision: VisionChannel | None = None
         self.audio: AudioChannel | None = None
         self.assembler: ContextAssembler | None = None
@@ -261,8 +262,9 @@ class CreativityEngine:
             self.vision.release()
 
     async def _on_heartbeat(self, ctx: ContextSnapshot) -> None:
-        """Called by the heartbeat timer — runs a full creative cycle.
-        Pauses the background listener so they don't fight over the mic."""
+        """Called by the heartbeat timer. Decides between observation mode
+        (casual comment on what's happening) and creative mode (full
+        association pipeline) based on the overall novelty of inputs."""
         if self.audio:
             self.audio.paused = True
             await asyncio.sleep(0.6)
@@ -284,11 +286,30 @@ class CreativityEngine:
             seed = context_with_overheard
             print(f"   🎯 Context: \"{context_with_overheard}\"")
 
+        threshold = self.cfg.heartbeat.creative_threshold
+        go_creative = ctx.overall_novelty >= threshold or self._force_creative
+        self._force_creative = False
+
+        if go_creative:
+            print(f"   >> Novelty {ctx.overall_novelty:.2f} >= {threshold} — CREATIVE MODE")
+            await self._heartbeat_creative(ctx, seed)
+        else:
+            print(f"   >> Novelty {ctx.overall_novelty:.2f} < {threshold} — OBSERVATION MODE")
+            await self._heartbeat_observation(ctx)
+
+        if self.audio:
+            self.audio.paused = False
+
+    async def _heartbeat_creative(self, ctx: ContextSnapshot, seed: str) -> None:
+        """Full creative pipeline: association tree + scoring + search + bridge."""
         interjection = await self.run_creative_cycle(seed, verbose=True)
 
         if interjection:
+            from src.bridge_builder.builder import _get_excitement_tier
+            tier = _get_excitement_tier(interjection.scoring.total)
+            tier_label = tier["name"].upper()
             print(f"\n{'═' * 70}")
-            print(f"💬 CREATIVITY ENGINE SAYS:\n")
+            print(f"💬 CREATIVITY ENGINE SAYS  [{tier_label} | score: {interjection.scoring.total:.2f}]:\n")
             print(f"   \"{interjection.interjection_text}\"")
             print(f"\n{'═' * 70}")
             self._print_citations(interjection)
@@ -296,8 +317,22 @@ class CreativityEngine:
         else:
             print(f"\n   🤫 Nothing interesting enough this time. I'll keep thinking...")
 
-        if self.audio:
-            self.audio.paused = False
+    async def _heartbeat_observation(self, ctx: ContextSnapshot) -> None:
+        """Lightweight observation: single LLM call commenting on what's happening.
+        If the LLM has nothing to say, occasionally nudges the user instead."""
+        self._thinking = True
+        try:
+            observation = await self.bridge.build_observation(ctx)
+            if observation:
+                print(f"\n{'─' * 50}")
+                print(f"💭 CREATIVITY OBSERVES  [novelty: {ctx.overall_novelty:.2f}]:\n")
+                print(f"   \"{observation}\"")
+                print(f"{'─' * 50}")
+                self.responder.add_engine_interjection(observation)
+            else:
+                print(f"\n   😌 Nothing to comment on — just vibing.")
+        finally:
+            self._thinking = False
 
     # ── PUSH-TO-TALK (Shift+Z) ──────────────────────────────────────
 
@@ -352,7 +387,9 @@ class CreativityEngine:
         print(f"   Push-to-talk: Hold Shift+Z to talk directly!")
 
     async def _ptt_recording_loop(self) -> None:
-        """Records audio while push-to-talk keys are held, then transcribes."""
+        """Records audio while push-to-talk keys are held, then transcribes.
+        Uses one continuous sd.rec() call, stopped with sd.stop() on release,
+        to avoid the choppy-chunks problem with low-gain mics."""
         import sounddevice as sd
 
         while self.heartbeat.is_running:
@@ -363,32 +400,35 @@ class CreativityEngine:
             if self.audio and self.audio.is_available:
                 self.audio.paused = True
 
-            chunks = []
-            chunk_samples = int(0.5 * self.audio.sample_rate)
+            max_seconds = 30
+            total_samples = int(max_seconds * self.audio.sample_rate)
+            audio_buf = sd.rec(total_samples, samplerate=self.audio.sample_rate,
+                               channels=1, dtype="float32")
+
             while self._ptt_recording:
-                loop = asyncio.get_event_loop()
-                chunk = await loop.run_in_executor(
-                    None,
-                    lambda: self._ptt_record_chunk(chunk_samples),
-                )
-                if chunk is not None:
-                    chunks.append(chunk)
+                await asyncio.sleep(0.05)
+
+            sd.stop()
 
             if self.audio:
                 self.audio.paused = False
 
-            if not chunks:
+            audio_data = audio_buf.flatten()
+            last_nonzero = len(audio_data)
+            while last_nonzero > 0 and abs(audio_data[last_nonzero - 1]) < 1e-10:
+                last_nonzero -= 1
+            audio_data = audio_data[:max(last_nonzero, 1)]
+
+            duration = len(audio_data) / self.audio.sample_rate
+            if duration < 0.3:
                 continue
 
-            import numpy as np
-            audio_data = np.concatenate(chunks)
-            duration = len(audio_data) / self.audio.sample_rate
             print(f"   🎤 Recorded {duration:.1f}s — transcribing...")
 
             self.audio._play_listening_tone()
             transcript = await self.audio.transcribe(audio_data)
 
-            if not transcript:
+            if not transcript or len(transcript.strip().strip(".")) < 4:
                 print(f"   🎤 Couldn't make out what you said.")
                 continue
 
@@ -403,17 +443,7 @@ class CreativityEngine:
 
             await self._handle_direct_address(message or transcript)
 
-    def _ptt_record_chunk(self, chunk_samples: int):
-        """Record one small chunk for push-to-talk. Runs in executor."""
-        try:
-            import sounddevice as sd
-            import numpy as np
-            chunk = sd.rec(chunk_samples, samplerate=self.audio.sample_rate,
-                           channels=1, dtype="float32")
-            sd.wait()
-            return chunk.flatten()
-        except Exception:
-            return None
+    # Removed _ptt_record_chunk — no longer needed with continuous recording
 
     # ── BACKGROUND LISTENER (Overheard Context) ──────────────────
 
@@ -652,6 +682,9 @@ class CreativityEngine:
             if not user_input:
                 continue
 
+            if user_input.replace("z", "").replace("Z", "") == "":
+                continue
+
             cmd = user_input.lower()
 
             if cmd in ("quit", "exit", "q"):
@@ -682,7 +715,8 @@ class CreativityEngine:
                 if self._thinking:
                     print("   ⏳ Already thinking — hang on!")
                 else:
-                    print("   ⚡ Forcing heartbeat NOW!")
+                    print("   ⚡ Forcing heartbeat NOW! (creative mode)")
+                    self._force_creative = True
                     self.heartbeat._remaining_seconds = 0
 
             else:

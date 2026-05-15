@@ -17,6 +17,7 @@ import yaml
 class HeartbeatConfig:
     min_minutes: int = 1
     max_minutes: int = 10
+    creative_threshold: float = 0.55
 
 
 @dataclass
@@ -119,6 +120,7 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         heartbeat=HeartbeatConfig(
             min_minutes=hb.get("min_minutes", 1),
             max_minutes=hb.get("max_minutes", 10),
+            creative_threshold=hb.get("creative_threshold", 0.55),
         ),
         association_tree=AssociationTreeConfig(
             branching_factor=tree.get("branching_factor", 3),

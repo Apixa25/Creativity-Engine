@@ -3,6 +3,7 @@
 heartbeat:
   min_minutes: 1
   max_minutes: 10
+  creative_threshold: 0.55  # novelty above this triggers full creative pipeline; below = casual observation
 
 input_pipeline:
   vision:
