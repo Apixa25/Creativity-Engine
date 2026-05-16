@@ -2,18 +2,29 @@
 Interest Scorer — Evaluates association chains for interestingness.
 
 Five metrics, weighted per spec:
-  semantic_distance  × 0.30  — reward boldness
+  semantic_distance  × 0.30  — reward boldness (REAL cosine distance with embeddings)
   domain_crossings   × 0.25  — reward crossing fields
   surprise           × 0.20  — reward the unexpected
   bridgeability      × 0.15  — can a story be told?
-  novelty            × 0.10  — haven't said this before
+  novelty            × 0.10  — haven't said this before (embedding similarity with history)
+
+When embeddings are available, semantic_distance uses real cosine distance
+between the seed and endpoint in embedding space. The distance is also
+weighted by an "efficiency ratio" per Kenett et al. (2014-2018): chains
+that reach far in fewer hops score higher — mimicking the flat associative
+networks of highly creative people.
 """
 
 from __future__ import annotations
 
+import math
+
 from src.config.llm_adapter import LLMAdapter
 from src.config.settings import ScoringConfig
+from src.embeddings.provider import EmbeddingProvider, cosine_distance, cosine_similarity
 from src.models import AssociationChain, ScoringBreakdown, ContextSnapshot
+
+import numpy as np
 
 
 SURPRISE_PROMPT = """On a scale of 0.0 to 1.0, how SURPRISING is it to connect "{seed}" to "{endpoint}"?
@@ -51,9 +62,16 @@ Return ONLY a single number, nothing else."""
 
 
 class InterestScorer:
-    def __init__(self, llm: LLMAdapter, config: ScoringConfig | None = None):
+    def __init__(
+        self,
+        llm: LLMAdapter,
+        config: ScoringConfig | None = None,
+        embedder: EmbeddingProvider | None = None,
+    ):
         self.llm = llm
         self.cfg = config or ScoringConfig()
+        self.embedder = embedder
+        self._past_embeddings: list[np.ndarray] = []
 
     async def score_chain(
         self,
@@ -63,7 +81,7 @@ class InterestScorer:
     ) -> ScoringBreakdown:
         """
         Score a single association chain on all five metrics.
-        Returns a ScoringBreakdown with individual and total scores.
+        Uses real embeddings when available for semantic_distance and novelty.
         """
         w = self.cfg.weights
 
@@ -92,14 +110,32 @@ class InterestScorer:
 
     def _compute_semantic_distance(self, chain: AssociationChain) -> float:
         """
-        Estimate semantic distance based on chain length and domain crossings.
-        Uses a logarithmic curve so it's harder to max out — depth 7 with 6
-        crossings only reaches ~0.85, not 1.0.
+        Compute semantic distance between seed and endpoint.
+
+        With embeddings: uses real cosine distance, boosted by an efficiency
+        ratio (distance / hops). This rewards chains that reach far in fewer
+        hops — the "flat hierarchy" of creative minds per Kenett et al.
+        A chain that gets from "silver coins" to "cancer cure" in 4 hops
+        scores higher than one that takes 7 hops to get the same distance.
+
+        Without embeddings: falls back to the log-curve heuristic based on
+        depth and domain crossings (original behavior).
         """
-        import math
+        root = chain.nodes[0] if chain.nodes else None
+        endpoint = chain.nodes[-1] if chain.nodes else None
+
+        if (root and endpoint
+                and root.embedding is not None
+                and endpoint.embedding is not None):
+            raw_distance = cosine_distance(root.embedding, endpoint.embedding)
+            hops = max(len(chain.nodes) - 1, 1)
+            efficiency = raw_distance / hops
+            efficiency_bonus = min(1.0, efficiency * 3.0)
+            score = (raw_distance * 0.7) + (efficiency_bonus * 0.3)
+            return min(1.0, score)
+
         depth = len(chain.nodes) - 1
         crossings = chain.domain_crossings
-
         depth_score = min(1.0, math.log(1 + depth) / math.log(1 + 8))
         crossing_score = min(1.0, math.log(1 + crossings) / math.log(1 + 5))
         return (depth_score * 0.4) + (crossing_score * 0.6)
@@ -139,9 +175,23 @@ class InterestScorer:
 
     def _compute_novelty(self, chain: AssociationChain, past_topics: list[str]) -> float:
         """
-        Simple novelty check: is this endpoint topic already in our history?
-        Full system would use embeddings; POC uses string matching.
+        Check how novel this endpoint is compared to past interjections.
+
+        With embeddings: computes cosine similarity against all past endpoint
+        embeddings. If any past topic is >0.85 similar, it's a near-duplicate.
+        Continuous scoring means "kinda similar" topics still get partial credit.
+
+        Without embeddings: falls back to substring matching (original behavior).
         """
+        endpoint = chain.nodes[-1] if chain.nodes else None
+
+        if endpoint and endpoint.embedding is not None and self._past_embeddings:
+            max_sim = 0.0
+            for past_emb in self._past_embeddings:
+                sim = cosine_similarity(endpoint.embedding, past_emb)
+                max_sim = max(max_sim, sim)
+            return max(0.0, 1.0 - max_sim)
+
         if not past_topics:
             return 1.0
 
@@ -150,6 +200,12 @@ class InterestScorer:
             if past.lower() in endpoint_lower or endpoint_lower in past.lower():
                 return 0.1
         return 1.0
+
+    def record_interjection(self, chain: AssociationChain) -> None:
+        """Record a chain's endpoint embedding for future novelty checks."""
+        endpoint = chain.nodes[-1] if chain.nodes else None
+        if endpoint and endpoint.embedding is not None:
+            self._past_embeddings.append(endpoint.embedding)
 
     async def rank_chains(
         self,
@@ -161,6 +217,7 @@ class InterestScorer:
         """
         Pre-filter chains using cheap metrics (no LLM calls), then only
         full-score the top candidates. This keeps LLM calls bounded.
+        With embeddings, pre-filtering uses real semantic distance.
         """
         past = past_interjection_topics or []
 

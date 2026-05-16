@@ -82,6 +82,14 @@ class VoiceOutputConfig:
 
 
 @dataclass
+class EmbeddingConfig:
+    provider: str = "openai"        # "openai", "local", or "auto" (try local first)
+    openai_model: str = "text-embedding-3-small"
+    local_model: str = "all-MiniLM-L6-v2"
+    cache_enabled: bool = True
+
+
+@dataclass
 class GitMonitorConfig:
     enabled: bool = True
     poll_interval_seconds: int = 30
@@ -104,6 +112,7 @@ class EngineConfig:
     input_pipeline: InputPipelineConfig = field(default_factory=InputPipelineConfig)
     voice: VoiceOutputConfig = field(default_factory=VoiceOutputConfig)
     git: GitMonitorConfig = field(default_factory=GitMonitorConfig)
+    embeddings: EmbeddingConfig = field(default_factory=EmbeddingConfig)
 
 
 def load_config(config_path: str | Path | None = None) -> EngineConfig:
@@ -135,6 +144,7 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
     aud = ip.get("audio", {})
     voice_raw = raw.get("voice", {})
     git_raw = raw.get("git", {})
+    emb_raw = raw.get("embeddings", {})
 
     return EngineConfig(
         heartbeat=HeartbeatConfig(
@@ -194,5 +204,11 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
             poll_interval_seconds=git_raw.get("poll_interval_seconds", 30),
             max_diff_chars=git_raw.get("max_diff_chars", 4000),
             repo_path=git_raw.get("repo_path", "."),
+        ),
+        embeddings=EmbeddingConfig(
+            provider=emb_raw.get("provider", "openai"),
+            openai_model=emb_raw.get("openai_model", "text-embedding-3-small"),
+            local_model=emb_raw.get("local_model", "all-MiniLM-L6-v2"),
+            cache_enabled=emb_raw.get("cache_enabled", True),
         ),
     )

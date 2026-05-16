@@ -28,6 +28,7 @@ from src.input_pipeline.address_detector import AddressDetector
 from src.conversation.responder import DirectResponder
 from src.output.voice import VoiceOutput, VoiceConfig
 from src.input_pipeline.git_monitor import GitMonitor
+from src.embeddings.provider import EmbeddingProvider, EmbeddingConfig
 from src.models import ContextSnapshot, Interjection
 
 
@@ -46,8 +47,14 @@ class CreativityEngine:
             min_minutes=self.cfg.heartbeat.min_minutes,
             max_minutes=self.cfg.heartbeat.max_minutes,
         )
-        self.tree_gen = AssociationTreeGenerator(self.llm, self.cfg.association_tree)
-        self.scorer = InterestScorer(self.llm, self.cfg.scoring)
+        self.embedder = EmbeddingProvider(EmbeddingConfig(
+            provider=self.cfg.embeddings.provider,
+            openai_model=self.cfg.embeddings.openai_model,
+            local_model=self.cfg.embeddings.local_model,
+            cache_enabled=self.cfg.embeddings.cache_enabled,
+        ))
+        self.tree_gen = AssociationTreeGenerator(self.llm, self.cfg.association_tree, self.embedder)
+        self.scorer = InterestScorer(self.llm, self.cfg.scoring, self.embedder)
         self.bridge = BridgeBuilder(self.llm)
         self.searcher = WebSearcher(self.llm)
         self.past_topics: list[str] = []
@@ -169,6 +176,7 @@ class CreativityEngine:
                 search_sources=search_result.source_urls if search_result else None,
             )
             self.past_topics.append(best_chain.endpoint_topic)
+            self.scorer.record_interjection(best_chain)
 
             elapsed = time.time() - t0
             if verbose:
@@ -207,6 +215,7 @@ class CreativityEngine:
         if self.current_context:
             print(f"   Context: \"{self.current_context}\"")
 
+        self.embedder.initialize()
         self.enable_multimodal()
         self.voice.initialize()
         if self.cfg.git.enabled:
@@ -852,6 +861,7 @@ class CreativityEngine:
 
     async def run_single(self, seed_topic: str) -> None:
         """Fire a single heartbeat cycle — for testing and demos."""
+        self.embedder.initialize()
         print("=" * 70)
         print("🧠 CREATIVITY ENGINE — Proof of Concept")
         print("=" * 70)
@@ -881,8 +891,10 @@ class CreativityEngine:
             )
             print(f"  #{i} [{status}] Score: {score.total:.3f}")
             print(f"     Chain: {chain.summary()}")
+            embed_tag = f" [cosine: {chain.total_semantic_distance:.3f}]" if chain.total_semantic_distance > 0 else ""
             print(f"     Breakdown: dist={score.semantic_distance:.2f} cross={score.domain_crossings:.2f} "
-                  f"surprise={score.surprise:.2f} bridge={score.bridgeability:.2f} novel={score.novelty:.2f}")
+                  f"surprise={score.surprise:.2f} bridge={score.bridgeability:.2f} novel={score.novelty:.2f}"
+                  f"{embed_tag}")
             print()
 
         best_chain, best_score = ranked[0]
@@ -900,6 +912,7 @@ class CreativityEngine:
                 search_sources=search_result.source_urls if search_result else None,
             )
             self.past_topics.append(best_chain.endpoint_topic)
+            self.scorer.record_interjection(best_chain)
 
             elapsed = time.time() - t0
             print(f"{'═' * 70}")
@@ -940,6 +953,7 @@ class CreativityEngine:
 
     async def run_interactive(self) -> None:
         """Interactive mode — enter seed topics and watch the engine think."""
+        self.embedder.initialize()
         print("=" * 70)
         print("🧠 CREATIVITY ENGINE — Interactive Mode")
         print("=" * 70)

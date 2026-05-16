@@ -33,6 +33,12 @@ input_pipeline:
     skip_threshold: 0.15
     decay_rate: 0.95
 
+embeddings:
+  provider: "openai"              # "openai", "local" (sentence-transformers), or "auto"
+  openai_model: "text-embedding-3-small"
+  local_model: "all-MiniLM-L6-v2"
+  cache_enabled: true             # cache vectors so same topic is never embedded twice
+
 association_tree:
   branching_factor: 3
   min_depth: 4
